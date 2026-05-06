@@ -893,7 +893,7 @@ The workspace keeps core crate examples close to the crates that own them, and s
 
 Validated examples in this repo include:
 
-- `cargo run -p adk-rust --example performance_0_8_llm_agents --features minimal` — all 12 v0.8 optimization use cases with mock LLM agents.
+- `cargo run -p adk-rust --example performance_0_8_llm_agents --features openrouter` — all 12 v0.8 optimization use cases with live LLM agents.
 - `cargo run --manifest-path examples/tier_examples/standard/Cargo.toml --bin 11-standard-graph` — standard-tier graph workflow.
 - `cargo run --manifest-path examples/openai_responses/Cargo.toml` — OpenAI Responses API example.
 - `cargo run -p adk-realtime --example openai_session_update --features openai` — OpenAI Realtime session mutation.

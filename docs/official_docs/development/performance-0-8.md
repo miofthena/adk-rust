@@ -1,6 +1,6 @@
 # v0.8.0 Performance Validation Examples
 
-The compile-checked example at `adk-rust/examples/performance_0_8_llm_agents.rs` runs 12 keyless LLM agents with `MockLlm`. Each agent maps one v0.8.0 optimization to a user-friendly adoption scenario:
+The live validation example at `adk-rust/examples/performance_0_8_llm_agents.rs` runs 12 real LLM agents using provider credentials from the environment or repo `.env`. Each agent maps one v0.8.0 optimization to a user-friendly adoption scenario and validates the response internally without printing model output:
 
 1. `scaffold_advisor` validates current `cargo-adk` templates for a small support bot.
 2. `install_doctor` explains the rustls-only install path for OpenSSL-friction cases.
@@ -18,5 +18,5 @@ The compile-checked example at `adk-rust/examples/performance_0_8_llm_agents.rs`
 Run it locally with:
 
 ```bash
-cargo run -p adk-rust --example performance_0_8_llm_agents --features minimal
+cargo run -p adk-rust --example performance_0_8_llm_agents --features openrouter
 ```

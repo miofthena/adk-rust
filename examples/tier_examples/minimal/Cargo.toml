@@ -4,8 +4,6 @@ version = "0.0.1"
 edition = "2024"
 publish = false
 
-[workspace]
-
 # Default features only — no explicit tier. This is what README users get.
 [features]
 openai = ["adk-rust/openai"]

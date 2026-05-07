@@ -4,8 +4,6 @@ version = "0.0.1"
 edition = "2024"
 publish = false
 
-[workspace]
-
 # Enterprise tier — standard + realtime, browser, RAG, payments, AWP.
 [dependencies]
 adk-rust = { path = "../../../adk-rust", features = ["enterprise"] }

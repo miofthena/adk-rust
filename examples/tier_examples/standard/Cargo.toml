@@ -4,8 +4,6 @@ version = "0.0.1"
 edition = "2024"
 publish = false
 
-[workspace]
-
 # Standard tier — adds tools, memory, telemetry, server, auth, graph, eval, guardrail,
 # plugin, artifacts, and skills. CLI providers remain opt-in.
 [dependencies]

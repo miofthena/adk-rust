@@ -4,8 +4,6 @@ version = "0.0.1"
 edition = "2024"
 publish = false
 
-[workspace]
-
 # Full tier — everything: enterprise + audio, code, sandbox.
 [dependencies]
 adk-rust = { path = "../../../adk-rust", features = ["full"] }

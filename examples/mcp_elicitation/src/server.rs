@@ -48,6 +48,8 @@ struct DeployParams {
 
 #[derive(Debug, Clone)]
 struct ElicitationServer {
+    // Required by rmcp's tool router macros; the field is consumed by generated handlers.
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
 

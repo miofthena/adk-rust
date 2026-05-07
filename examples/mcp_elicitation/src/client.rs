@@ -45,7 +45,7 @@ impl ElicitationHandler for StdinElicitationHandler {
         let mut response = serde_json::Map::new();
         let required = schema.required.clone().unwrap_or_default();
 
-        for (field_name, _) in &schema.properties {
+        for field_name in schema.properties.keys() {
             let marker = if required.contains(field_name) {
                 "*"
             } else {

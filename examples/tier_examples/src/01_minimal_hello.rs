@@ -15,6 +15,9 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     // Minimal defaults to Gemini. Set GOOGLE_API_KEY.
     let response = run("You are a helpful assistant.", "What is 2 + 2?").await?;
-    println!("{response}");
+    if !response.contains('4') {
+        anyhow::bail!("minimal hello response did not pass validation");
+    }
+    println!("minimal hello completed");
     Ok(())
 }

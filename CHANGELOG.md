@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **adk-acp**: New crate for Agent Client Protocol (ACP) integration. Connect ADK agents to external ACP agents (Claude Code, Codex, Kiro CLI, etc.) as tools.
+  - `AcpAgentTool` — wraps any ACP agent as an ADK `Tool` for task delegation
+  - `AcpToolset` — multiple ACP agents as a single `Toolset`
+  - `prompt_agent()` — low-level prompt/response function
+  - Auto-approve mode for permission requests
+  - Uses published `agent-client-protocol` + `agent-client-protocol-tokio` crates
+  - Feature-gated via `acp` on the umbrella crate
+
 - **cargo-adk deploy**: New `cargo adk deploy` subcommand for pushing agents to ADK Platform
   - Authenticates via --token, cached credentials, or ephemeral login
   - Uploads secrets from .env matching manifest [[secrets]] declarations

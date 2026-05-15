@@ -63,7 +63,7 @@ impl Chunker for FixedSizeChunker {
         let mut chunk_index = 0;
 
         while start < text.len() {
-            let end = (start + self.chunk_size).min(text.len());
+            let end = text.floor_char_boundary((start + self.chunk_size).min(text.len()));
             let chunk_text = &text[start..end];
 
             let mut metadata = document.metadata.clone();
@@ -82,7 +82,7 @@ impl Chunker for FixedSizeChunker {
             if step == 0 {
                 break;
             }
-            start += step;
+            start = text.floor_char_boundary(start + step);
         }
 
         chunks
@@ -213,13 +213,13 @@ fn split_by_size(text: &str, chunk_size: usize, chunk_overlap: usize) -> Vec<Str
     let mut start = 0;
 
     while start < text.len() {
-        let end = (start + chunk_size).min(text.len());
+        let end = text.floor_char_boundary((start + chunk_size).min(text.len()));
         chunks.push(text[start..end].to_string());
         let step = chunk_size.saturating_sub(chunk_overlap);
         if step == 0 {
             break;
         }
-        start += step;
+        start = text.floor_char_boundary(start + step);
     }
 
     chunks
@@ -386,5 +386,82 @@ impl Chunker for MarkdownChunker {
         }
 
         chunks
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Document;
+    use std::collections::HashMap;
+
+    fn doc(text: &str) -> Document {
+        Document {
+            id: "test".to_string(),
+            text: text.to_string(),
+            metadata: HashMap::new(),
+            source_uri: None,
+        }
+    }
+
+    #[test]
+    fn fixed_chunker_utf8_multibyte() {
+        // Chinese characters are 3 bytes each in UTF-8.
+        // "你好世界" = 4 chars, 12 bytes.
+        // With chunk_size=5 (bytes), naive slicing would panic mid-character.
+        let chunker = FixedSizeChunker::new(5, 0);
+        let chunks = chunker.chunk(&doc("你好世界测试文本"));
+        // Should not panic and all chunks should be valid UTF-8
+        for chunk in &chunks {
+            assert!(chunk.text.is_char_boundary(0));
+            // Verify it's valid UTF-8 by iterating chars
+            let _ = chunk.text.chars().count();
+        }
+        // Should produce multiple chunks
+        assert!(chunks.len() > 1);
+    }
+
+    #[test]
+    fn fixed_chunker_utf8_emoji() {
+        // Emoji are 4 bytes each. "🦀🚀🎉" = 3 chars, 12 bytes.
+        let chunker = FixedSizeChunker::new(6, 0);
+        let chunks = chunker.chunk(&doc("🦀🚀🎉✨🌟💫"));
+        for chunk in &chunks {
+            let _ = chunk.text.chars().count();
+        }
+        assert!(chunks.len() > 1);
+    }
+
+    #[test]
+    fn fixed_chunker_utf8_mixed() {
+        // Mix of ASCII (1 byte), accented (2 bytes), CJK (3 bytes), emoji (4 bytes)
+        let text = "Hello café 你好 🦀";
+        let chunker = FixedSizeChunker::new(7, 2);
+        let chunks = chunker.chunk(&doc(text));
+        for chunk in &chunks {
+            let _ = chunk.text.chars().count();
+        }
+        assert!(!chunks.is_empty());
+    }
+
+    #[test]
+    fn split_by_size_utf8() {
+        let text = "日本語のテスト文字列です";
+        let chunks = split_by_size(text, 10, 3);
+        for chunk in &chunks {
+            let _ = chunk.chars().count();
+        }
+        assert!(chunks.len() > 1);
+    }
+
+    #[test]
+    fn recursive_chunker_utf8() {
+        let text = "第一段落。这是中文文本。\n\n第二段落。更多中文内容在这里。";
+        let chunker = RecursiveChunker::new(15, 3);
+        let chunks = chunker.chunk(&doc(text));
+        for chunk in &chunks {
+            let _ = chunk.text.chars().count();
+        }
+        assert!(!chunks.is_empty());
     }
 }

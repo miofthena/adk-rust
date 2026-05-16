@@ -117,6 +117,10 @@ where
                     "gcp.vertex.agent.invocation_id",
                     "gcp.vertex.agent.event_id",
                     "gen_ai.conversation.id",
+                    #[cfg(feature = "genai-semconv")]
+                    "gen_ai.provider.name",
+                    #[cfg(feature = "genai-semconv")]
+                    "gen_ai.system",
                 ];
 
                 for key in context_keys {

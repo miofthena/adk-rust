@@ -22,10 +22,13 @@ opentelemetry-otlp = { version = "0.31", features = ["metrics", "grpc-tonic"], o
 tracing-opentelemetry = { version = "0.32", optional = true }
 
 [features]
-default = []
+default = ["genai-semconv"]
+genai-semconv = []
 otlp = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]
 metrics = ["otlp"]
 json = ["tracing-subscriber/json"]
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["rt", "macros", "time"] }
+proptest = "1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }

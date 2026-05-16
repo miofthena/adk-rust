@@ -7,6 +7,7 @@
 //! - OpenTelemetry integration for distributed tracing
 //! - OTLP export for observability backends (Jaeger, Datadog, etc.)
 //! - Automatic context propagation
+//! - OTel GenAI Semantic Conventions (v1.41.0) via `genai-semconv` feature (enabled by default)
 //!
 //! ## Usage
 //!
@@ -30,6 +31,18 @@ pub mod init;
 pub mod span_exporter;
 pub mod spans;
 
+// GenAI Semantic Conventions module (feature-gated)
+#[cfg(feature = "genai-semconv")]
+pub mod semconv;
+
+// Content event configuration (feature-gated)
+#[cfg(feature = "genai-semconv")]
+pub mod config;
+
+// Content event emitter (feature-gated)
+#[cfg(feature = "genai-semconv")]
+pub mod events;
+
 // Re-export tracing macros for convenience
 pub use tracing::{Span, debug, error, info, instrument, trace, warn};
 
@@ -49,3 +62,7 @@ pub use init::{build_otlp_layer, init_with_otlp};
 pub use opentelemetry::global;
 #[cfg(feature = "otlp")]
 pub use opentelemetry::metrics::{Meter, MeterProvider};
+
+// Re-export key semconv types for convenience
+#[cfg(feature = "genai-semconv")]
+pub use semconv::{GenAiOperation, GenAiProvider, GenAiResponseRecorder, GenAiSpanBuilder};

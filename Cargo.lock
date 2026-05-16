@@ -761,6 +761,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "proptest",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

@@ -69,6 +69,9 @@ pub mod toolset;
 #[cfg(feature = "code")]
 pub mod code_execution;
 
+#[cfg(feature = "memory-tools")]
+pub mod memory;
+
 #[cfg(feature = "slack")]
 pub mod slack;
 

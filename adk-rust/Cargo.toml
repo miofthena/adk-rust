@@ -153,6 +153,8 @@ slack = ["tools", "adk-tool/slack"]
 bigquery = ["tools", "adk-tool/bigquery"]
 # Native Spanner toolset (forwarded to adk-tool)
 spanner = ["tools", "adk-tool/spanner"]
+# Memory tools (LoadMemoryTool, PreloadMemoryTool) (forwarded to adk-tool)
+memory-tools = ["tools", "memory", "adk-tool/memory-tools"]
 # User personas for evaluation (forwarded to adk-eval)
 personas = ["eval", "adk-eval/personas"]
 # Prompt optimization CLI command (forwarded to adk-cli)

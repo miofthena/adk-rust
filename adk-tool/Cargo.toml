@@ -14,6 +14,8 @@ readme = "README.md"
 
 [features]
 default = []
+# Enable memory tools (LoadMemoryTool, PreloadMemoryTool)
+memory-tools = ["dep:adk-memory", "dep:chrono"]
 # Enable Model Context Protocol clients and local child-process transport.
 mcp = ["dep:rmcp"]
 # Enable HTTP transport for remote MCP servers (streamable HTTP)
@@ -48,6 +50,9 @@ base64 = "0.22"
 uuid.workspace = true
 futures.workspace = true
 tokio-util = { version = "0.7", features = ["rt"] }
+# Optional: memory tools
+adk-memory = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
 # Optional: code execution substrate
 adk-code = { workspace = true, optional = true }
 adk-sandbox = { workspace = true, optional = true }

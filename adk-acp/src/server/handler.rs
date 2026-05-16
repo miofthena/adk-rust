@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use adk_core::{Agent, Content, SessionId, UserId};
-use adk_runner::{Runner, RunnerConfig};
+use adk_runner::Runner;
 use adk_session::SessionService;
 use futures::StreamExt;
 use tokio::sync::Mutex;
@@ -187,22 +187,12 @@ impl AcpSessionHandler {
         prompt: &str,
         cancellation_token: CancellationToken,
     ) -> Result<Vec<SessionNotification>, AcpServerError> {
-        let runner_config = RunnerConfig {
-            app_name: self.app_name.clone(),
-            agent: self.agent.clone(),
-            session_service: self.session_service.clone(),
-            memory_service: None,
-            run_config: None,
-            compaction_config: None,
-            context_cache_config: None,
-            cache_capable: None,
-            request_context: None,
-            cancellation_token: Some(cancellation_token),
-            intra_compaction_config: None,
-            intra_compaction_summarizer: None,
-        };
-
-        let runner = Runner::new(runner_config)
+        let runner = Runner::builder()
+            .app_name(&self.app_name)
+            .agent(self.agent.clone())
+            .session_service(self.session_service.clone())
+            .cancellation_token(cancellation_token)
+            .build()
             .map_err(|e| AcpServerError::Execution(format!("failed to create runner: {e}")))?;
 
         let content = Content::new("user").with_text(prompt);

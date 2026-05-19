@@ -83,12 +83,14 @@ struct SessionInner {
 
 enum SessionCommand {
     Prompt(String),
+    Cancel,
     Close,
 }
 
 enum SessionResult {
     Response(String),
     Error(String),
+    Cancelled,
     Closed,
 }
 
@@ -101,7 +103,10 @@ impl AcpSession {
     pub async fn start(config: AcpAgentConfig, policy: Arc<PermissionPolicy>) -> Result<Self> {
         info!(command = %config.command, cwd = %config.working_dir.display(), "starting persistent ACP session");
 
-        let agent = AcpAgent::from_str(&config.command).map_err(|e| {
+        let command_with_env =
+            crate::connection::build_command_with_env(&config.command, &config.env);
+
+        let agent = AcpAgent::from_str(&command_with_env).map_err(|e| {
             AcpError::InvalidConfig(format!("invalid command '{}': {e}", config.command))
         })?;
 
@@ -197,6 +202,10 @@ impl AcpSession {
                                             }
                                         }
                                     }
+                                    SessionCommand::Cancel => {
+                                        let _ = result_tx.send(SessionResult::Cancelled).await;
+                                        break;
+                                    }
                                     SessionCommand::Close => {
                                         let _ = result_tx.send(SessionResult::Closed).await;
                                         break;
@@ -259,6 +268,9 @@ impl AcpSession {
                 prompt_count: self.prompt_count,
             }),
             Some(SessionResult::Error(e)) => Err(AcpError::Protocol(e)),
+            Some(SessionResult::Cancelled) => {
+                Err(AcpError::ConnectionLost("prompt cancelled".into()))
+            }
             Some(SessionResult::Closed) => Err(AcpError::ConnectionLost("session closed".into())),
             None => Err(AcpError::ConnectionLost("agent process exited".into())),
         }
@@ -274,6 +286,27 @@ impl AcpSession {
                 "ACP session closed"
             );
         }
+        Ok(())
+    }
+
+    /// Cancel the currently running prompt.
+    ///
+    /// If the agent is processing a prompt, this terminates the session and
+    /// restarts it. The next call to [`prompt()`](Self::prompt) will work
+    /// on a fresh session context.
+    pub async fn cancel(&mut self) -> Result<()> {
+        if let Some(inner) = &self.inner {
+            info!("cancelling in-progress ACP prompt");
+            let _ = inner.prompt_tx.send(SessionCommand::Cancel).await;
+            // Drain the result channel
+            let mut rx = inner.result_rx.lock().await;
+            let _ = rx.recv().await;
+        }
+        // Close and restart
+        self.inner = None;
+        let mut new_session = AcpSession::start(self.config.clone(), self.policy.clone()).await?;
+        self.inner = new_session.inner.take();
+        info!("ACP session restarted after cancel");
         Ok(())
     }
 

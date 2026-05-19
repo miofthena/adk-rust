@@ -30,6 +30,9 @@ pub struct AcpAgentConfig {
     /// Whether to auto-approve permission requests (YOLO mode).
     /// Used by `prompt_agent()`. For fine-grained control, use `prompt_agent_with_policy()`.
     pub auto_approve: bool,
+    /// Environment variables to inject when spawning the agent process.
+    /// These are merged with the current process environment (these take precedence).
+    pub env: std::collections::HashMap<String, String>,
 }
 
 impl AcpAgentConfig {
@@ -39,6 +42,7 @@ impl AcpAgentConfig {
             command: command.into(),
             working_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             auto_approve: true,
+            env: std::collections::HashMap::new(),
         }
     }
 
@@ -51,6 +55,23 @@ impl AcpAgentConfig {
     /// Set whether to auto-approve permission requests.
     pub fn auto_approve(mut self, approve: bool) -> Self {
         self.auto_approve = approve;
+        self
+    }
+
+    /// Add an environment variable to inject when spawning the agent.
+    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.insert(key.into(), value.into());
+        self
+    }
+
+    /// Set multiple environment variables at once.
+    pub fn envs(
+        mut self,
+        vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        for (k, v) in vars {
+            self.env.insert(k.into(), v.into());
+        }
         self
     }
 }
@@ -95,7 +116,11 @@ pub async fn prompt_agent_with_policy(
 ) -> Result<String> {
     info!(command = %config.command, cwd = %config.working_dir.display(), "spawning ACP agent");
 
-    let agent = AcpAgent::from_str(&config.command).map_err(|e| {
+    // Build command with env vars prepended (SDK parses leading NAME=value as env vars
+    // and passes them to the child process via Command::env — no unsafe needed).
+    let command_with_env = build_command_with_env(&config.command, &config.env);
+
+    let agent = AcpAgent::from_str(&command_with_env).map_err(|e| {
         AcpError::InvalidConfig(format!("invalid command '{}': {e}", config.command))
     })?;
 
@@ -171,4 +196,21 @@ pub async fn prompt_agent_with_policy(
         .await;
 
     result.map_err(|e| AcpError::Protocol(e.to_string()))
+}
+
+/// Build a command string with environment variables prepended.
+///
+/// The ACP SDK's `AcpAgent::from_str` / `from_args` parses leading `NAME=value`
+/// tokens as environment variables and passes them to the child process via
+/// `Command::env()` — no unsafe `set_var` needed.
+pub(crate) fn build_command_with_env(
+    command: &str,
+    env: &std::collections::HashMap<String, String>,
+) -> String {
+    if env.is_empty() {
+        return command.to_string();
+    }
+    let mut parts: Vec<String> = env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    parts.push(command.to_string());
+    parts.join(" ")
 }

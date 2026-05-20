@@ -25,3 +25,7 @@ path = "src/direct.rs"
 [[bin]]
 name = "acp-kiro-session"
 path = "src/session.rs"
+
+[[bin]]
+name = "acp-kiro-env-cancel"
+path = "src/env_and_cancel.rs"

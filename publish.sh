@@ -29,7 +29,6 @@ CRATES=(
   adk-rust-macros
   adk-sandbox
   adk-action
-  adk-acp
   adk-deploy
   adk-awp          # depends on awp-types + adk-core
 
@@ -57,6 +56,7 @@ CRATES=(
 
   # Tier 7: depends on Tier 6
   adk-auth         # depends on adk-server (optional)
+  adk-acp          # depends on adk-runner (optional server feature)
   cargo-adk        # depends on adk-deploy
 
   # Tier 8: depends on Tier 7

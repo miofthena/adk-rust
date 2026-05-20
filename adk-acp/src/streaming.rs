@@ -87,7 +87,9 @@ pub async fn stream_prompt(
 ) -> Result<OutputStream> {
     info!(command = %config.command, "starting streaming ACP prompt");
 
-    let agent = AcpAgent::from_str(&config.command).map_err(|e| {
+    let command_with_env = crate::connection::build_command_with_env(&config.command, &config.env);
+
+    let agent = AcpAgent::from_str(&command_with_env).map_err(|e| {
         AcpError::InvalidConfig(format!("invalid command '{}': {e}", config.command))
     })?;
 

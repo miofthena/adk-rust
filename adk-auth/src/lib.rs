@@ -61,7 +61,7 @@ pub mod sso;
 pub mod secrets;
 
 pub use access_control::{AccessControl, AccessControlBuilder};
-pub use audit::{AuditEvent, AuditEventType, AuditOutcome, AuditSink, FileAuditSink};
+pub use audit::{AuditEvent, AuditEventType, AuditFilter, AuditOutcome, AuditSink, FileAuditSink, InMemoryAuditSink};
 pub use error::{AccessDenied, AuthError};
 pub use middleware::{AuthMiddleware, ProtectedTool, ProtectedToolDyn, ToolExt};
 pub use permission::Permission;

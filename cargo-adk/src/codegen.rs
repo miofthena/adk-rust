@@ -141,11 +141,18 @@ pub fn generate_main_rs(manifest: &CompositionManifest, project_name: &str) -> S
 
     let imports_section = imports.join("\n");
 
-    // Build model initialization
+    // Build model initialization (includes api_key loading from env)
     let model_init = if let Some(pc) = provider_config {
-        format!("    let model = {};", pc.model_init_code)
+        if pc.requires_api_key {
+            format!(
+                "    let api_key = std::env::var(\"{}\").expect(\"{} must be set\");\n    let model = {};",
+                pc.env_var, pc.env_var, pc.model_init_code
+            )
+        } else {
+            format!("    let model = {};", pc.model_init_code)
+        }
     } else {
-        "    let model = Gemini::from_env(\"gemini-2.5-flash\");".to_string()
+        "    let api_key = std::env::var(\"GOOGLE_API_KEY\").expect(\"GOOGLE_API_KEY must be set\");\n    let model = adk_rust::model::GeminiModel::new(&api_key, \"gemini-2.5-flash\")?;".to_string()
     };
 
     // Build agent construction
@@ -465,7 +472,7 @@ mod tests {
         assert!(main_rs.contains("#[tokio::main]"));
         assert!(main_rs.contains("dotenvy::dotenv().ok();"));
         assert!(main_rs.contains("tracing_subscriber::fmt()"));
-        assert!(main_rs.contains("Gemini::from_env(\"gemini-2.5-flash\")"));
+        assert!(main_rs.contains("GeminiModel::new(&api_key, \"gemini-2.5-flash\")?"));
         assert!(main_rs.contains("anyhow::Result<()>"));
     }
 
@@ -488,7 +495,7 @@ mod tests {
         let manifest = resolve_composition(&reg, "llm", &[], "openai").unwrap();
         let main_rs = generate_main_rs(&manifest, "my-agent");
 
-        assert!(main_rs.contains("OpenAI::from_env(\"gpt-5-mini\")"));
+        assert!(main_rs.contains("OpenAIClient::new("));
     }
 
     #[test]

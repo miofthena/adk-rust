@@ -24,6 +24,10 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use cargo_adk::codegen::generate_project;
+use cargo_adk::composition::{resolve_composition, DryRunFile, DryRunOutput};
+use cargo_adk::registry::TemplateRegistry;
+
 const ADK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Parser)]
@@ -75,6 +79,14 @@ enum AdkCommand {
         /// Also generate a YAML agent definition alongside Rust source
         #[arg(long)]
         with_yaml: bool,
+
+        /// Capability addons to include (repeatable)
+        #[arg(long, action = clap::ArgAction::Append)]
+        addon: Vec<String>,
+
+        /// Preview what would be generated without writing files
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// List available templates
@@ -86,6 +98,24 @@ enum AdkCommand {
         /// Custom template directory to include
         #[arg(long)]
         template_dir: Option<PathBuf>,
+    },
+
+    /// List available capability addons
+    Addons {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Build the agent project (cargo build --release)
+    Build {
+        /// Path to Cargo.toml (defaults to current directory)
+        #[arg(long)]
+        manifest_path: Option<PathBuf>,
+
+        /// Build in debug mode instead of release
+        #[arg(long)]
+        debug: bool,
     },
 
     /// Validate an agent definition without building or deploying
@@ -220,6 +250,8 @@ fn main() {
             non_interactive: _,
             json_output,
             with_yaml,
+            addon,
+            dry_run,
         } => {
             if let Err(e) = create_project(
                 &name,
@@ -228,6 +260,8 @@ fn main() {
                 output_dir.as_deref(),
                 json_output,
                 with_yaml,
+                &addon,
+                dry_run,
             ) {
                 if json_output {
                     let err = serde_json::json!({"error": e});
@@ -243,6 +277,15 @@ fn main() {
                 print_templates_json(template_dir.as_deref());
             } else {
                 print_templates(template_dir.as_deref());
+            }
+        }
+        AdkCommand::Addons { json } => {
+            print_addons(json);
+        }
+        AdkCommand::Build { manifest_path, debug } => {
+            if let Err(e) = handle_build(manifest_path, debug) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
             }
         }
         AdkCommand::Validate { yaml, rust } => {
@@ -284,6 +327,182 @@ fn main() {
                 std::process::exit(1);
             }
         }
+    }
+}
+
+// ── Build command ────────────────────────────────────────────────
+
+fn handle_build(manifest_path: Option<PathBuf>, debug: bool) -> Result<(), String> {
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("build");
+
+    if !debug {
+        cmd.arg("--release");
+    }
+
+    if let Some(ref path) = manifest_path {
+        cmd.arg("--manifest-path").arg(path);
+    }
+
+    let status = cmd.status().map_err(|e| format!("failed to run cargo build: {e}"))?;
+
+    if status.success() {
+        // Determine the target directory for reporting
+        let profile_dir = if debug { "debug" } else { "release" };
+        let target_dir = if let Some(ref path) = manifest_path {
+            // If manifest_path is specified, target dir is relative to its parent
+            let parent = Path::new(path).parent().unwrap_or(Path::new("."));
+            parent.join("target").join(profile_dir)
+        } else {
+            PathBuf::from("target").join(profile_dir)
+        };
+
+        println!("✅ Build successful");
+        println!("   profile: {profile_dir}");
+        println!("   target:  {}", target_dir.display());
+
+        // Try to find and report binary sizes
+        if target_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&target_dir) {
+                let mut found_binary = false;
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        // On Unix, check if executable; on all platforms, skip common non-binary extensions
+                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        if ext == "d"
+                            || ext == "rlib"
+                            || ext == "rmeta"
+                            || ext == "so"
+                            || ext == "dylib"
+                        {
+                            continue;
+                        }
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            if let Ok(meta) = path.metadata() {
+                                let mode = meta.permissions().mode();
+                                if mode & 0o111 != 0 && ext.is_empty() {
+                                    let size = meta.len();
+                                    println!(
+                                        "   binary:  {} ({:.1} MB)",
+                                        path.display(),
+                                        size as f64 / 1_048_576.0
+                                    );
+                                    found_binary = true;
+                                }
+                            }
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            if ext == "exe" {
+                                if let Ok(meta) = path.metadata() {
+                                    let size = meta.len();
+                                    println!(
+                                        "   binary:  {} ({:.1} MB)",
+                                        path.display(),
+                                        size as f64 / 1_048_576.0
+                                    );
+                                    found_binary = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                if !found_binary {
+                    println!("   (no binaries found in {})", target_dir.display());
+                }
+            }
+        }
+
+        Ok(())
+    } else {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+}
+
+// ── Addons command ──────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct AddonInfo {
+    name: &'static str,
+    description: &'static str,
+    priority: u8,
+    features: Vec<&'static str>,
+}
+
+fn get_builtin_addons() -> Vec<AddonInfo> {
+    vec![
+        AddonInfo {
+            name: "telemetry",
+            description: "OpenTelemetry tracing integration with console exporter",
+            priority: 10,
+            features: vec!["telemetry"],
+        },
+        AddonInfo {
+            name: "auth",
+            description: "Authentication middleware with API key and JWT support",
+            priority: 20,
+            features: vec!["auth"],
+        },
+        AddonInfo {
+            name: "sessions",
+            description: "Session management with configurable backend",
+            priority: 30,
+            features: vec!["sessions"],
+        },
+        AddonInfo {
+            name: "memory",
+            description: "Semantic memory integration with in-memory backend",
+            priority: 40,
+            features: vec!["memory"],
+        },
+        AddonInfo {
+            name: "mcp",
+            description: "MCP tool integration with example server connection",
+            priority: 50,
+            features: vec!["tools", "mcp"],
+        },
+        AddonInfo {
+            name: "guardrails",
+            description: "Input and output guardrail hooks with validation logic",
+            priority: 60,
+            features: vec!["guardrail"],
+        },
+        AddonInfo {
+            name: "eval",
+            description: "Evaluation harness with example test cases",
+            priority: 70,
+            features: vec!["eval"],
+        },
+        AddonInfo {
+            name: "browser",
+            description: "Browser automation tool integration",
+            priority: 80,
+            features: vec!["browser"],
+        },
+        AddonInfo {
+            name: "server",
+            description: "Axum HTTP server with health check and agent endpoints",
+            priority: 90,
+            features: vec!["server"],
+        },
+    ]
+}
+
+fn print_addons(json: bool) {
+    let addons = get_builtin_addons();
+    if json {
+        println!("{}", serde_json::to_string_pretty(&addons).unwrap_or_default());
+    } else {
+        println!("Available capability addons:\n");
+        for addon in &addons {
+            println!("  {:<12} {}", addon.name, addon.description);
+        }
+        println!(
+            "\nUsage: cargo adk new my-agent --template llm --addon <addon> [--addon <addon> ...]"
+        );
     }
 }
 
@@ -785,10 +1004,45 @@ fn get_builtin_templates() -> Vec<TemplateInfo> {
 
 fn print_templates(_template_dir: Option<&Path>) {
     println!("Available templates:\n");
+
+    println!("  Agent Types:");
+    println!("    {:<14} Single LLM agent with tool calling support", "llm");
+    println!("    {:<14} Sequential multi-agent pipeline", "sequential");
+    println!("    {:<14} Parallel multi-agent execution", "parallel");
+    println!("    {:<14} Loop agent with termination condition", "loop");
+    println!("    {:<14} Conditional routing agent", "conditional");
+    println!("    {:<14} Graph-based workflow with checkpoints", "graph");
+    println!("    {:<14} Real-time voice/audio streaming agent", "realtime");
+    println!("    {:<14} Custom agent with manual trait implementation", "custom");
+
+    println!("\n  Enterprise Patterns:");
+    println!("    {:<14} LLM + server, auth, sessions, telemetry", "production");
+    println!("    {:<14} Supervisor orchestrating sub-agents", "multi-agent");
+    println!("    {:<14} Sequential pipeline with state passing", "pipeline");
+    println!("    {:<14} Conversational agent with memory + server", "chatbot");
+    println!("    {:<14} A2A protocol server with sessions", "a2a-server");
+
+    println!("\n  Legacy (backward-compatible):");
     for t in get_builtin_templates() {
-        println!("  {:<8} {}", t.name, t.description);
+        println!("    {:<14} {}", t.name, t.description);
     }
-    println!("\nUsage: cargo adk new my-agent --template <template>");
+
+    println!("\n  Addons (composable with any template):");
+    println!("    --addon {:<12} OpenTelemetry tracing", "telemetry");
+    println!("    --addon {:<12} API key and JWT authentication", "auth");
+    println!("    --addon {:<12} Session state management", "sessions");
+    println!("    --addon {:<12} Semantic memory and RAG", "memory");
+    println!("    --addon {:<12} MCP tool integration", "mcp");
+    println!("    --addon {:<12} Input/output validation", "guardrails");
+    println!("    --addon {:<12} Evaluation framework", "eval");
+    println!("    --addon {:<12} Browser automation", "browser");
+    println!("    --addon {:<12} HTTP server with A2A", "server");
+
+    println!("\nUsage:");
+    println!("  cargo adk new my-agent --template llm");
+    println!("  cargo adk new my-agent --template llm --addon server --addon sessions");
+    println!("  cargo adk new my-agent --template production");
+    println!("  cargo adk new my-agent --template graph --provider openai");
 }
 
 fn print_templates_json(template_dir: Option<&Path>) {
@@ -829,6 +1083,33 @@ fn print_templates_json(template_dir: Option<&Path>) {
 
 // ── Scaffolding commands ────────────────────────────────────────
 
+/// New composable template names.
+const COMPOSABLE_TEMPLATES: &[&str] =
+    &["llm", "sequential", "parallel", "loop", "conditional", "graph", "realtime", "custom"];
+
+/// Enterprise pattern names.
+const ENTERPRISE_PATTERNS: &[&str] =
+    &["multi-agent", "production", "pipeline", "chatbot", "a2a-server"];
+
+/// Determine whether to use the composable system for a given template + addons.
+fn should_use_composable(template: &str, addons: &[String]) -> bool {
+    // If addons are specified, always use the composable system
+    if !addons.is_empty() {
+        return true;
+    }
+    // If template is a new composable template name, use composable
+    if COMPOSABLE_TEMPLATES.contains(&template) {
+        return true;
+    }
+    // If template is an enterprise pattern, use composable
+    if ENTERPRISE_PATTERNS.contains(&template) {
+        return true;
+    }
+    // Otherwise (legacy template with no addons), use legacy
+    false
+}
+
+#[allow(clippy::too_many_arguments)]
 fn create_project(
     name: &str,
     template: &str,
@@ -836,7 +1117,14 @@ fn create_project(
     output_dir: Option<&Path>,
     json_output: bool,
     with_yaml: bool,
+    addons: &[String],
+    dry_run: bool,
 ) -> Result<(), String> {
+    if should_use_composable(template, addons) {
+        return create_project_composable(name, template, provider, output_dir, json_output, addons, dry_run);
+    }
+
+    // Legacy path: use existing generate_* functions for backward compatibility
     let base_dir = output_dir.unwrap_or_else(|| Path::new("."));
     let project_path = base_dir.join(name);
 
@@ -895,6 +1183,126 @@ fn create_project(
         println!("  provider: {provider}");
         if with_yaml {
             println!("  yaml:     agents/{name}.yaml");
+        }
+        println!();
+        println!("Next steps:");
+        println!("  cd {}", project_path.display());
+        println!("  cp .env.example .env    # add your API key");
+        println!("  cargo run");
+    }
+
+    Ok(())
+}
+
+/// Create a project using the composable system (registry → composition → codegen).
+///
+/// This handles new templates, enterprise patterns, and legacy templates with addons.
+fn create_project_composable(
+    name: &str,
+    template: &str,
+    provider: &str,
+    output_dir: Option<&Path>,
+    json_output: bool,
+    addons: &[String],
+    dry_run: bool,
+) -> Result<(), String> {
+    let registry = TemplateRegistry::builtin();
+
+    // Determine the base template and effective addons
+    let (base_template, effective_addons) = if let Some(pattern) = registry.resolve_pattern(template) {
+        // Enterprise pattern: resolve to base_template + pattern addons + user addons
+        let mut all_addons: Vec<String> = pattern.included_addons.iter().map(|a| a.to_string()).collect();
+        for addon in addons {
+            if !all_addons.contains(addon) {
+                all_addons.push(addon.clone());
+            }
+        }
+        (pattern.base_template.to_string(), all_addons)
+    } else {
+        // Direct template (new composable or legacy with addons)
+        (template.to_string(), addons.to_vec())
+    };
+
+    // Convert addons to &str slice for resolve_composition
+    let addon_refs: Vec<&str> = effective_addons.iter().map(|s| s.as_str()).collect();
+
+    // Resolve composition
+    let manifest = resolve_composition(&registry, &base_template, &addon_refs, provider)
+        .map_err(|e| e.to_string())?;
+
+    // Generate project files
+    let files = generate_project(&manifest, name);
+
+    // Handle dry-run mode
+    if dry_run {
+        let dry_output = DryRunOutput {
+            files: files.iter().map(|f| DryRunFile {
+                path: f.path.clone(),
+                size_bytes: f.content.len(),
+            }).collect(),
+            feature_set: manifest.feature_set.iter().cloned().collect(),
+            dependencies: std::iter::once(format!("adk-rust = {ADK_VERSION}"))
+                .chain(manifest.dependencies.iter().map(|d| format!("{} = {}", d.crate_name, d.version)))
+                .collect(),
+            env_vars: manifest.env_vars.iter().map(|(k, _)| k.clone()).collect(),
+        };
+
+        if json_output {
+            println!("{}", serde_json::to_string_pretty(&dry_output).unwrap_or_default());
+        } else {
+            println!("Dry run — files that would be generated:\n");
+            for file in &dry_output.files {
+                println!("  {:<20} ({} bytes)", file.path, file.size_bytes);
+            }
+            println!("\nFeatures: [{}]", dry_output.feature_set.join(", "));
+            if !dry_output.env_vars.is_empty() {
+                println!("Env vars: {}", dry_output.env_vars.join(", "));
+            }
+            println!("\nNo files were written to disk.");
+        }
+        return Ok(());
+    }
+
+    // Write files to disk
+    let base_dir = output_dir.unwrap_or_else(|| Path::new("."));
+    let project_path = base_dir.join(name);
+
+    if project_path.exists() {
+        return Err(format!("directory '{}' already exists", project_path.display()));
+    }
+
+    for file in &files {
+        let file_path = project_path.join(&file.path);
+        if let Some(parent) = file_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("failed to create directory: {e}"))?;
+        }
+        fs::write(&file_path, &file.content)
+            .map_err(|e| format!("failed to write {}: {e}", file.path))?;
+    }
+
+    // Build output
+    let files_created: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+
+    if json_output {
+        let output = NewProjectOutput {
+            project_dir: project_path.to_string_lossy().to_string(),
+            template: template.to_string(),
+            provider: provider.to_string(),
+            files_created,
+        };
+        println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+    } else {
+        println!("Created ADK agent project: {}/", project_path.display());
+        println!("  template: {template}");
+        println!("  provider: {provider}");
+        if !effective_addons.is_empty() {
+            println!("  addons:   {}", effective_addons.join(", "));
+        }
+        if !manifest.warnings.is_empty() {
+            println!();
+            for warning in &manifest.warnings {
+                println!("  ⚠ {warning}");
+            }
         }
         println!();
         println!("Next steps:");
@@ -1381,7 +1789,7 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
 
-        let result = create_project("test-agent", "basic", "gemini", Some(&tmp), false, false);
+        let result = create_project("test-agent", "basic", "gemini", Some(&tmp), false, false, &[], false);
         assert!(result.is_ok());
         assert!(tmp.join("test-agent/Cargo.toml").exists());
         assert!(tmp.join("test-agent/src/main.rs").exists());
@@ -1395,7 +1803,7 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
 
-        let result = create_project("yaml-agent", "tools", "gemini", Some(&tmp), false, true);
+        let result = create_project("yaml-agent", "tools", "gemini", Some(&tmp), false, true, &[], false);
         assert!(result.is_ok());
         assert!(tmp.join("yaml-agent/agents/yaml-agent.yaml").exists());
 
@@ -1416,7 +1824,7 @@ mod tests {
         fs::create_dir_all(&tmp).unwrap();
 
         // json_output just changes what's printed, project is still created
-        let result = create_project("json-agent", "basic", "gemini", Some(&tmp), true, false);
+        let result = create_project("json-agent", "basic", "gemini", Some(&tmp), true, false, &[], false);
         assert!(result.is_ok());
         assert!(tmp.join("json-agent/Cargo.toml").exists());
 
@@ -1544,7 +1952,7 @@ mod tests {
                 let _ = fs::remove_dir_all(&tmp);
                 fs::create_dir_all(&tmp).unwrap();
 
-                let result = create_project(&name, "a2a", provider, Some(&tmp), false, false);
+                let result = create_project(&name, "a2a", provider, Some(&tmp), false, false, &[], false);
                 prop_assert!(result.is_ok(), "create_project failed for name={name}, provider={provider}: {:?}", result.err());
 
                 let project_path = tmp.join(&name);

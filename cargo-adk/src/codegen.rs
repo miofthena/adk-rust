@@ -142,17 +142,26 @@ pub fn generate_main_rs(manifest: &CompositionManifest, project_name: &str) -> S
     let imports_section = imports.join("\n");
 
     // Build model initialization (includes api_key loading from env)
+    // If model_override is set, replace the default model in the init code
     let model_init = if let Some(pc) = provider_config {
+        let init_code = if let Some(ref model_id) = manifest.model_override {
+            pc.model_init_code.replace(pc.default_model, model_id)
+        } else {
+            pc.model_init_code.to_string()
+        };
         if pc.requires_api_key {
             format!(
                 "    let api_key = std::env::var(\"{}\").expect(\"{} must be set\");\n    let model = {};",
-                pc.env_var, pc.env_var, pc.model_init_code
+                pc.env_var, pc.env_var, init_code
             )
         } else {
-            format!("    let model = {};", pc.model_init_code)
+            format!("    let model = {};", init_code)
         }
     } else {
-        "    let api_key = std::env::var(\"GOOGLE_API_KEY\").expect(\"GOOGLE_API_KEY must be set\");\n    let model = adk_rust::model::GeminiModel::new(&api_key, \"gemini-2.5-flash\")?;".to_string()
+        let model_id = manifest.model_override.as_deref().unwrap_or("gemini-3.5-flash");
+        format!(
+            "    let api_key = std::env::var(\"GOOGLE_API_KEY\").expect(\"GOOGLE_API_KEY must be set\");\n    let model = adk_rust::model::GeminiModel::new(&api_key, \"{model_id}\")?;"
+        )
     };
 
     // Build agent construction
@@ -472,7 +481,7 @@ mod tests {
         assert!(main_rs.contains("#[tokio::main]"));
         assert!(main_rs.contains("dotenvy::dotenv().ok();"));
         assert!(main_rs.contains("tracing_subscriber::fmt()"));
-        assert!(main_rs.contains("GeminiModel::new(&api_key, \"gemini-2.5-flash\")?"));
+        assert!(main_rs.contains("GeminiModel::new(&api_key, \"gemini-3.5-flash\")?"));
         assert!(main_rs.contains("anyhow::Result<()>"));
     }
 

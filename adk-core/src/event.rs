@@ -127,6 +127,27 @@ impl Event {
         self.llm_response.content = Some(content);
     }
 
+    /// Returns the Interactions API interaction id for this event, if present.
+    ///
+    /// Reads the id from the flattened [`LlmResponse`], mirroring ADK-Python's
+    /// `event.interaction_id`. Returns `None` for events produced by the
+    /// generateContent transport and non-Gemini providers.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use adk_core::Event;
+    ///
+    /// let mut event = Event::new("inv-123");
+    /// assert_eq!(event.interaction_id(), None);
+    ///
+    /// event.llm_response.interaction_id = Some("v1_abc".to_string());
+    /// assert_eq!(event.interaction_id(), Some("v1_abc"));
+    /// ```
+    pub fn interaction_id(&self) -> Option<&str> {
+        self.llm_response.interaction_id.as_deref()
+    }
+
     /// Returns whether the event is the final response of an agent.
     ///
     /// An event is considered final if:

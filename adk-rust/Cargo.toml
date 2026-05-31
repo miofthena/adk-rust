@@ -107,6 +107,7 @@ a2a = ["server", "adk-server/a2a-v1"]
 # Model provider features (forwarded to adk-model)
 gemini = ["models", "adk-model/gemini"]
 gemini-vertex = ["gemini", "adk-model/gemini-vertex"]
+gemini-interactions = ["gemini", "adk-model/gemini-interactions"]
 openai = ["models", "adk-model/openai"]
 openrouter = ["models", "adk-model/openrouter"]
 anthropic = ["models", "adk-model/anthropic"]

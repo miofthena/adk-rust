@@ -54,6 +54,7 @@ proptest! {
 
         let fr = adk_gemini::FunctionResponse {
             name: "test_tool".to_string(),
+            id: None,
             response: Some(serde_json::json!({"ok": true})),
             parts: fr_parts,
         };

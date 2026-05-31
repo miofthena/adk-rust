@@ -1,3 +1,4 @@
+use crate::builtin::bypass::BypassMultiToolsLimit;
 use adk_core::{Result, Tool, ToolContext};
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -14,6 +15,58 @@ impl GoogleSearchTool {
     /// Create a new `GoogleSearchTool`.
     pub fn new() -> Self {
         Self
+    }
+}
+
+/// Bypass support: convert the built-in Google Search tool into a
+/// function-calling tool so it can be used alongside custom function tools.
+///
+/// The Gemini Interactions API forbids mixing built-in (server-side) tools with
+/// custom function tools in one request. Implementing [`BypassMultiToolsLimit`]
+/// mirrors ADK-Python's `bypass_multi_tools_limit=True`: the converted tool
+/// reports `is_builtin() == false`, declares a normal `query: string` function
+/// schema, and performs grounded search by delegating to an internal
+/// single-turn agent.
+///
+/// Because `adk-tool` cannot depend on `adk-agent`, the internal
+/// grounded-search agent is supplied by the caller. It is expected to be an
+/// `LlmAgent` configured with [`GoogleSearchTool`] and a Gemini model so that
+/// the grounding happens server-side.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use adk_tool::{BypassMultiToolsLimit, GoogleSearchTool};
+/// use std::sync::Arc;
+///
+/// // `search_agent` is an LlmAgent with GoogleSearchTool + a Gemini model.
+/// let tool = GoogleSearchTool::new().with_bypass_multi_tools_limit(Arc::new(search_agent));
+/// assert!(!tool.is_builtin());
+/// ```
+impl BypassMultiToolsLimit for GoogleSearchTool {
+    fn bypass_name(&self) -> String {
+        self.name().to_string()
+    }
+
+    fn bypass_description(&self) -> String {
+        "Performs a Google search to retrieve information from the web.".to_string()
+    }
+
+    fn bypass_parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query to look up on Google."
+                }
+            },
+            "required": ["query"]
+        })
+    }
+
+    fn bypass_query_field(&self) -> String {
+        "query".to_string()
     }
 }
 

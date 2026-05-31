@@ -24,6 +24,49 @@ fn test_model_deserialization() {
 }
 
 #[test]
+fn test_may_2026_ga_models_roundtrip() {
+    // GA models that shipped/replaced previews in May 2026.
+    for (model, wire) in [
+        (Model::Gemini35Flash, "models/gemini-3.5-flash"),
+        (Model::Gemini31FlashLite, "models/gemini-3.1-flash-lite"),
+        (Model::Gemini31FlashImage, "models/gemini-3.1-flash-image"),
+        (Model::Gemini3ProImage, "models/gemini-3-pro-image"),
+        (Model::GeminiEmbedding2, "models/gemini-embedding-2"),
+    ] {
+        // as_str matches the wire id
+        assert_eq!(model.as_str(), wire);
+        // serializes to the wire id
+        let serialized = serde_json::to_value(&model).unwrap();
+        assert_eq!(serialized, json!(wire));
+        // From<String> round-trips both with and without the "models/" prefix
+        let bare = wire.strip_prefix("models/").unwrap();
+        assert_eq!(Model::from(bare.to_string()), model);
+        assert_eq!(Model::from(wire.to_string()), model);
+    }
+}
+
+#[test]
+fn test_function_response_id_strict_matching() {
+    use crate::FunctionResponse;
+
+    // No id by default — the field is omitted from the wire payload.
+    let resp = FunctionResponse::new("get_weather", json!({"temp": 72}));
+    assert_eq!(resp.id, None);
+    let json_val = serde_json::to_value(&resp).unwrap();
+    assert!(json_val.get("id").is_none());
+
+    // with_id sets the correlation id required by Gemini 3.x strict matching.
+    let resp = FunctionResponse::new("get_weather", json!({"temp": 72})).with_id("call_123");
+    assert_eq!(resp.id.as_deref(), Some("call_123"));
+    let json_val = serde_json::to_value(&resp).unwrap();
+    assert_eq!(json_val["id"], json!("call_123"));
+
+    // Round-trips through deserialization.
+    let back: FunctionResponse = serde_json::from_value(json_val).unwrap();
+    assert_eq!(back, resp);
+}
+
+#[test]
 fn test_thought_signature_deserialization() {
     // Test JSON that includes thoughtSignature like in the provided API response
     let json_response = json!({

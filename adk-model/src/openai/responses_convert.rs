@@ -785,6 +785,7 @@ mod tests {
             contents: vec![],
             config: Some(GenerateContentConfig { extensions, ..Default::default() }),
             tools: HashMap::new(),
+            previous_response_id: None,
         };
 
         let error = build_create_response("gpt-5", &request, None, None)
@@ -805,8 +806,13 @@ mod tests {
             }),
         );
 
-        let request =
-            LlmRequest { model: "gpt-5.4".to_string(), contents: vec![], config: None, tools };
+        let request = LlmRequest {
+            model: "gpt-5.4".to_string(),
+            contents: vec![],
+            config: None,
+            tools,
+            previous_response_id: None,
+        };
 
         assert!(request_uses_native_tools(&request));
     }
@@ -831,6 +837,7 @@ mod tests {
             contents: vec![],
             config: None,
             tools,
+            previous_response_id: None,
         };
 
         let built = build_create_response("computer-use-preview", &request, None, None)

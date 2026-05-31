@@ -788,6 +788,7 @@ mod tests {
             contents,
             tools: std::collections::HashMap::new(),
             config: None,
+            previous_response_id: None,
         }
     }
 

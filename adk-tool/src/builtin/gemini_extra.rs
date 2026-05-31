@@ -1,3 +1,4 @@
+use crate::builtin::bypass::BypassMultiToolsLimit;
 use adk_core::{Result, Tool, ToolContext};
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -169,6 +170,52 @@ impl Tool for GeminiFileSearchTool {
 
     async fn execute(&self, _ctx: Arc<dyn ToolContext>, _args: Value) -> Result<Value> {
         Err(adk_core::AdkError::tool("Gemini file search is handled internally by Gemini"))
+    }
+}
+
+/// Bypass support: convert the built-in Gemini File Search tool into a
+/// function-calling tool so it can be used alongside custom function tools
+/// under the Gemini Interactions API.
+///
+/// The converted tool declares a `query: string` function schema and performs
+/// the document search by delegating to an internal single-turn agent (an
+/// `LlmAgent` configured with [`GeminiFileSearchTool`] and a Gemini model).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use adk_tool::{BypassMultiToolsLimit, GeminiFileSearchTool};
+/// use std::sync::Arc;
+///
+/// // `file_search_agent` is an LlmAgent with GeminiFileSearchTool + a Gemini model.
+/// let tool = GeminiFileSearchTool::new(["my-store"])
+///     .with_bypass_multi_tools_limit(Arc::new(file_search_agent));
+/// assert!(!tool.is_builtin());
+/// ```
+impl BypassMultiToolsLimit for GeminiFileSearchTool {
+    fn bypass_name(&self) -> String {
+        self.name().to_string()
+    }
+
+    fn bypass_description(&self) -> String {
+        "Searches Gemini File Search stores for documents relevant to a query.".to_string()
+    }
+
+    fn bypass_parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The query used to search the File Search stores."
+                }
+            },
+            "required": ["query"]
+        })
+    }
+
+    fn bypass_query_field(&self) -> String {
+        "query".to_string()
     }
 }
 

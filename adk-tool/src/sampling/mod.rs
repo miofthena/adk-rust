@@ -371,6 +371,7 @@ pub fn sampling_request_to_llm_request(request: &SamplingRequest, model_name: &s
         contents,
         config: Some(config),
         tools: Default::default(),
+        previous_response_id: None,
     }
 }
 

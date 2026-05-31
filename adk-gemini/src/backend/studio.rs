@@ -462,6 +462,108 @@ impl GeminiBackend for StudioBackend {
         let url = self.build_url_with_suffix(&qualified)?;
         self.get_json(url).await
     }
+
+    // ── Interactions API (Beta) ─────────────────────────────────────────
+
+    #[cfg(feature = "interactions")]
+    async fn create_interaction(
+        &self,
+        request: crate::interactions::CreateInteractionRequest,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        let url = self.build_url_with_suffix("interactions")?;
+        let response = self
+            .http_client
+            .post(url)
+            .header("Api-Revision", crate::interactions::API_REVISION)
+            .json(&request)
+            .send()
+            .await
+            .context(PerformRequestNewSnafu)?;
+        let response = Self::check_response(response).await?;
+        response.json().await.context(DecodeResponseSnafu)
+    }
+
+    #[cfg(feature = "interactions")]
+    async fn create_interaction_stream(
+        &self,
+        mut request: crate::interactions::CreateInteractionRequest,
+    ) -> Result<BackendStream<crate::interactions::InteractionSseEvent>, Error> {
+        request.stream = Some(true);
+        let url = self.build_url_with_suffix("interactions")?;
+        let response = self
+            .http_client
+            .post(url)
+            .header("Api-Revision", crate::interactions::API_REVISION)
+            .json(&request)
+            .send()
+            .await
+            .context(PerformRequestNewSnafu)?;
+        let response = Self::check_response(response).await?;
+
+        let stream = response
+            .bytes_stream()
+            .eventsource()
+            .map_err(|e| Error::BadPart { source: e })
+            .and_then(|event| async move {
+                serde_json::from_str::<crate::interactions::InteractionSseEvent>(&event.data)
+                    .context(DeserializeSnafu)
+            });
+
+        Ok(Box::pin(stream))
+    }
+
+    #[cfg(feature = "interactions")]
+    async fn get_interaction(
+        &self,
+        id: &str,
+        include_input: bool,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        let mut url = self.build_url_with_suffix(&format!("interactions/{id}"))?;
+        if include_input {
+            url.query_pairs_mut().append_pair("include_input", "true");
+        }
+        let response = self
+            .http_client
+            .get(url)
+            .header("Api-Revision", crate::interactions::API_REVISION)
+            .send()
+            .await
+            .context(PerformRequestNewSnafu)?;
+        let response = Self::check_response(response).await?;
+        response.json().await.context(DecodeResponseSnafu)
+    }
+
+    #[cfg(feature = "interactions")]
+    async fn delete_interaction(&self, id: &str) -> Result<(), Error> {
+        let url = self.build_url_with_suffix(&format!("interactions/{id}"))?;
+        let response = self
+            .http_client
+            .delete(url)
+            .header("Api-Revision", crate::interactions::API_REVISION)
+            .send()
+            .await
+            .context(PerformRequestNewSnafu)?;
+        Self::check_response(response).await?;
+        Ok(())
+    }
+
+    #[cfg(feature = "interactions")]
+    async fn cancel_interaction(
+        &self,
+        id: &str,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        let url = self.build_url_with_suffix(&format!("interactions/{id}:cancel"))?;
+        let response = self
+            .http_client
+            .post(url)
+            .header("Api-Revision", crate::interactions::API_REVISION)
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .context(PerformRequestNewSnafu)?;
+        let response = Self::check_response(response).await?;
+        response.json().await.context(DecodeResponseSnafu)
+    }
 }
 
 #[cfg(test)]

@@ -63,6 +63,10 @@ pub mod files;
 /// Content generation including text, images, and audio
 pub mod generation;
 
+/// Gemini Interactions API (Beta) — stateful, step-based agentic interactions.
+#[cfg(feature = "interactions")]
+pub mod interactions;
+
 /// Content moderation and safety settings
 pub mod safety;
 

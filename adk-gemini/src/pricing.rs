@@ -39,6 +39,17 @@ pub struct GeminiPricing {
 }
 
 impl GeminiPricing {
+    /// Gemini 3.5 Flash (GA). Input $1.50/MTok, output $9.00/MTok (incl. thinking).
+    pub const GEMINI_35_FLASH: Self = Self {
+        input: 1.50,
+        input_long: 1.50,
+        output: 9.00,
+        output_long: 9.00,
+        cache_input: 0.15,
+        cache_input_long: 0.15,
+        cache_storage_per_hour: 1.00,
+    };
+
     /// Gemini 3.1 Pro Preview
     pub const GEMINI_31_PRO_PREVIEW: Self = Self {
         input: 2.00,
@@ -249,6 +260,62 @@ impl GeminiPricing {
         cache_input_long: 0.0,
         cache_storage_per_hour: 0.0,
     };
+
+    /// Returns the standard (paid-tier) pricing for a known [`Model`](crate::client::Model), if one is
+    /// defined.
+    ///
+    /// Returns `None` for models without published per-token text pricing (e.g.
+    /// [`Model::Custom`](crate::client::Model::Custom), video/music models, or models that are free of charge).
+    /// Image and audio models return their text input/output rates; their media
+    /// output is billed at significantly higher rates not captured here.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::{Model, pricing::GeminiPricing};
+    ///
+    /// let pricing = GeminiPricing::for_model(&Model::Gemini35Flash).unwrap();
+    /// assert_eq!(pricing.input, 1.50);
+    /// ```
+    pub fn for_model(model: &crate::client::Model) -> Option<Self> {
+        use crate::client::Model;
+        #[allow(deprecated)]
+        let pricing = match model {
+            Model::Gemini35Flash => Self::GEMINI_35_FLASH,
+            Model::Gemini31ProPreview => Self::GEMINI_31_PRO_PREVIEW,
+            Model::Gemini31FlashLite | Model::Gemini31FlashLitePreview => {
+                Self::GEMINI_31_FLASH_LITE
+            }
+            Model::Gemini31FlashImage => Self::GEMINI_31_FLASH_IMAGE,
+            Model::Gemini3FlashPreview => Self::GEMINI_3_FLASH_PREVIEW,
+            Model::Gemini3ProImage | Model::Gemini3ProImagePreview => Self::GEMINI_3_PRO_IMAGE,
+            Model::Gemini25Pro => Self::GEMINI_25_PRO,
+            Model::Gemini25ProPreviewTts => Self::GEMINI_25_PRO_TTS,
+            Model::Gemini25Flash | Model::Gemini25FlashPreview092025 => Self::GEMINI_25_FLASH,
+            Model::Gemini25FlashImage | Model::Gemini25FlashImagePreview => {
+                Self::GEMINI_25_FLASH_IMAGE
+            }
+            Model::Gemini25FlashPreviewTts => Self::GEMINI_25_FLASH_TTS,
+            Model::Gemini25FlashLite | Model::Gemini25FlashLitePreview092025 => {
+                Self::GEMINI_25_FLASH_LITE
+            }
+            Model::Gemini25FlashLive122025 | Model::Gemini25FlashLive092025 => {
+                Self::GEMINI_25_FLASH_NATIVE_AUDIO
+            }
+            Model::Gemini20Flash
+            | Model::Gemini20Flash001
+            | Model::Gemini20FlashExp
+            | Model::Gemini20FlashLite
+            | Model::Gemini20FlashLite001 => Self::GEMINI_20_FLASH,
+            Model::GeminiEmbedding2 => Self::GEMINI_EMBEDDING_2,
+            Model::GeminiEmbedding001 | Model::TextEmbedding004 => Self::GEMINI_EMBEDDING,
+            // No published per-token text pricing (Pro Image preview text uses 3.1 Pro
+            // rates; the dedicated Gemini 3 Pro Preview text model is discontinued).
+            Model::Gemini3ProPreview => Self::GEMINI_31_PRO_PREVIEW,
+            Model::Custom(_) => return None,
+        };
+        Some(pricing)
+    }
 }
 
 /// Itemised cost breakdown from a single API call.
@@ -340,6 +407,32 @@ mod tests {
         // 1M output @ $2.50/MTok = $2.50
         assert!((cost.output_cost - 2.50).abs() < 1e-9);
         assert!((cost.total() - 2.80).abs() < 1e-9);
+    }
+
+    #[test]
+    fn gemini_35_flash_basic_cost() {
+        let cost = estimate_cost(&GeminiPricing::GEMINI_35_FLASH, 1_000_000, 1_000_000, 0);
+        // 1M input @ $1.50/MTok = $1.50
+        assert!((cost.input_cost - 1.50).abs() < 1e-9);
+        // 1M output @ $9.00/MTok = $9.00
+        assert!((cost.output_cost - 9.00).abs() < 1e-9);
+        assert!((cost.total() - 10.50).abs() < 1e-9);
+    }
+
+    #[test]
+    fn for_model_maps_known_models() {
+        use crate::client::Model;
+        // GA flagship Flash
+        let p = GeminiPricing::for_model(&Model::Gemini35Flash).unwrap();
+        assert!((p.input - 1.50).abs() < 1e-9);
+        // GA Flash-Lite and its (deprecated) preview share pricing
+        let lite = GeminiPricing::for_model(&Model::Gemini31FlashLite).unwrap();
+        assert!((lite.input - 0.25).abs() < 1e-9);
+        // Embedding 2
+        let emb = GeminiPricing::for_model(&Model::GeminiEmbedding2).unwrap();
+        assert!((emb.input - 0.20).abs() < 1e-9);
+        // Custom models have no published pricing
+        assert!(GeminiPricing::for_model(&Model::Custom("models/x".into())).is_none());
     }
 
     #[test]

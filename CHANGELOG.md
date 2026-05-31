@@ -5,6 +5,87 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **adk-gemini: Interactions API (Beta)** — first-class support for Google's new
+  Interactions API, the forward direction for the Gemini API. Gated behind the
+  new `interactions` feature flag (no new dependencies; additive to the existing
+  `generateContent` surface). New `adk_gemini::interactions` module with:
+  - `Gemini::create_interaction()` fluent builder — single-turn, streaming
+    (`step.delta` events), multimodal input, tools, structured output, and
+    server-side multi-turn via `previous_interaction_id`.
+  - `Gemini::get_interaction()`, `delete_interaction()`, `cancel_interaction()`
+    for the stored-interaction lifecycle.
+  - Typed `Step` timeline (user input, model output, thought, function call,
+    function result) with forward-compatible `Step::Other` for server-side tool
+    steps; polymorphic `Content`, `Tool`, and `ResponseFormat`; `Usage`,
+    `InteractionStatus`, and SSE `InteractionSseEvent`/`StepDelta` types.
+  - `Interaction::output_text()` and `pending_function_calls()` convenience
+    accessors mirroring the official SDKs.
+  - Requests pin the `Api-Revision: 2026-05-20` steps-schema contract.
+  - Example: `cargo run -p adk-gemini --features interactions --example interactions_basic`.
+- **adk-model / adk-rust: `gemini-interactions` feature** — forwards the
+  Interactions API surface up the stack. `adk_model::gemini::interactions`
+  re-exports the module when enabled.
+- **adk-model: Gemini Interactions API runtime transport (Beta)** — a transport
+  toggle on `GeminiModel` routes the standard `LlmAgent`/`Runner`/tool loop
+  through Google's Interactions API instead of `generateContent`, with no new
+  agent type or rewritten agent setup. Gated behind the `gemini-interactions`
+  feature; `generateContent` remains the default and recommended path. Highlights:
+  - `GeminiModel` builder `use_interactions_api(true)` selects the transport;
+    `interaction_options(...)` configures `store`, stateful continuation,
+    background mode, and poll interval (`InteractionOptions`/`BackgroundMode`).
+  - Faithful API defaults: `store=true`, server-side stateful continuation (via
+    `previous_interaction_id`), and `background=true` for agent targets only.
+  - Restricted target allowlist (`InteractionTarget`) with `InvalidInput` errors
+    naming the supported models/agents for unsupported targets.
+  - `bypass_multi_tools_limit`: built-in tools (Google Search, URL context, File
+    Search) can be converted to function-calling tools
+    (`with_bypass_multi_tools_limit` / the `BypassMultiToolsLimit` trait) so they
+    coexist with custom function tools under the Interactions API.
+  - Streaming (SSE) and background-poll completion surfaced through the same
+    response stream the runner consumes.
+  - Example: `examples/gemini_interactions_agent/`.
+- **adk-core: provider-neutral interaction continuity fields** — additive,
+  non-breaking fields that carry conversation continuity across providers:
+  - `LlmResponse.interaction_id: Option<String>` plus an `Event::interaction_id()`
+    accessor (mirrors ADK-Python's `event.interaction_id`).
+  - `LlmRequest.previous_response_id: Option<String>`, populated by `LlmAgent`
+    from the most recent event's `interaction_id`; the Gemini Interactions
+    transport maps it to `previous_interaction_id`, falling back to transcript
+    input transparently when a stored interaction has expired.
+- **adk-gemini: May 2026 GA models** — Added `Model` variants for models that
+  shipped or replaced previews in May 2026:
+  - `Gemini31FlashLite` (`gemini-3.1-flash-lite`, GA) — replaces the preview,
+    which was shut down May 25, 2026.
+  - `Gemini31FlashImage` (`gemini-3.1-flash-image`, Nano Banana 2, GA).
+  - `Gemini3ProImage` (`gemini-3-pro-image`, Nano Banana Pro, GA).
+  - `GeminiEmbedding2` (`gemini-embedding-2`, GA multimodal embeddings).
+- **adk-gemini: pricing for Gemini 3.5 Flash** — `GeminiPricing::GEMINI_35_FLASH`
+  ($1.50/MTok input, $9.00/MTok output incl. thinking).
+- **adk-gemini: `GeminiPricing::for_model(&Model)`** — maps a `Model` to its
+  standard per-token pricing, returning `None` for `Custom` models.
+- **adk-gemini: `FunctionResponse.id` + `FunctionResponse::with_id()`** — echo the
+  originating `FunctionCall` id to satisfy Gemini 3.x strict response matching
+  (id + name + count). adk-model's Gemini provider now forwards the call id
+  automatically.
+
+### Deprecated
+
+- **adk-gemini: `Model::Gemini31FlashLitePreview`** — shut down May 25, 2026;
+  use `Model::Gemini31FlashLite`.
+- **adk-gemini: `Model::Gemini3ProImagePreview`** — shuts down June 25, 2026;
+  use `Model::Gemini3ProImage`.
+
+### Changed
+
+- **adk-gemini: `ThinkingLevel` docs** — clarified that `Medium` is the default
+  for Gemini 3.5 Flash while `High` remains the default for Gemini 3 Flash
+  Preview and Gemini 3.1 Pro, and that `temperature`/`top_p`/`top_k` are no
+  longer recommended for Gemini 3.x.
+
 ## [0.9.2] - 2026-05-24
 
 ### Fixed

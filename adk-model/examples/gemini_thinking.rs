@@ -40,6 +40,7 @@ async fn run_model(label: &str, model: &GeminiModel) {
         contents: vec![Content::new("user").with_text(PROMPT)],
         config: None,
         tools: Default::default(),
+        previous_response_id: None,
     };
 
     let start = std::time::Instant::now();

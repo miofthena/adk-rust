@@ -391,6 +391,7 @@ mod tests {
             contents: vec![Content::new("user").with_text("What about dark mode?")],
             config: None,
             tools: HashMap::new(),
+            previous_response_id: None,
         };
 
         let result = callback(ctx, request).await.unwrap();
@@ -426,6 +427,7 @@ mod tests {
             contents: vec![Content::new("user").with_text("hello")],
             config: None,
             tools: HashMap::new(),
+            previous_response_id: None,
         };
 
         let result = callback(ctx, request.clone()).await.unwrap();

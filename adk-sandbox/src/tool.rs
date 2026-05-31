@@ -114,6 +114,37 @@ fn sandbox_error_to_json(err: &SandboxError) -> Value {
             "status": "error",
             "stderr": format!("policy violation: {msg}"),
         }),
+        #[cfg(feature = "workspace")]
+        SandboxError::ProvisionFailed { resource, reason, suggestion } => json!({
+            "status": "error",
+            "stderr": format!("provisioning failed for '{resource}': {reason}. {suggestion}"),
+        }),
+        #[cfg(feature = "workspace")]
+        SandboxError::SessionNotFound { handle } => json!({
+            "status": "error",
+            "stderr": format!("session '{handle}' not found. It may have been stopped or expired."),
+        }),
+        #[cfg(feature = "workspace")]
+        SandboxError::SnapshotNotFound { id } => json!({
+            "status": "error",
+            "stderr": format!("snapshot '{id}' not found. It may have been deleted or expired."),
+        }),
+        #[cfg(feature = "workspace")]
+        SandboxError::PathTraversal { path } => json!({
+            "status": "path_traversal",
+            "stderr": format!("path traversal rejected: '{path}' escapes workspace root. Use relative paths only."),
+        }),
+        #[cfg(feature = "workspace")]
+        SandboxError::DockerUnavailable { reason } => json!({
+            "status": "error",
+            "stderr": format!("Docker unavailable: {reason}. Ensure Docker daemon is running and accessible."),
+        }),
+        #[cfg(feature = "workspace")]
+        SandboxError::SessionTimeout { timeout } => json!({
+            "status": "timeout",
+            "stderr": format!("session timed out after {timeout:?}. Consider increasing session_timeout in SandboxConfig."),
+            "duration_ms": timeout.as_millis() as u64,
+        }),
     }
 }
 

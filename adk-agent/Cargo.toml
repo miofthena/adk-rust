@@ -18,6 +18,7 @@ adk-telemetry.workspace = true
 adk-skill = { workspace = true, optional = true }
 adk-guardrail = { workspace = true, optional = true }
 adk-plugin = { workspace = true, optional = true }
+adk-sandbox = { workspace = true, optional = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 futures = { workspace = true }
@@ -31,6 +32,7 @@ default = ["skills"]
 guardrails = ["adk-guardrail"]
 enhanced-plugins = ["dep:adk-plugin"]
 skills = ["dep:adk-skill"]
+sandbox = ["dep:adk-sandbox", "adk-sandbox/workspace"]
 record-payloads = []
 
 [dev-dependencies]

@@ -65,6 +65,61 @@ pub enum SandboxError {
     /// A policy path or resource could not be resolved.
     #[error("policy violation: {0}")]
     PolicyViolation(String),
+
+    // ── Workspace lifecycle variants (behind `workspace` feature) ──────────
+    /// Workspace provisioning failed.
+    #[cfg(feature = "workspace")]
+    #[error("provisioning failed for '{resource}': {reason}. {suggestion}")]
+    ProvisionFailed {
+        /// The resource that failed to provision (e.g., manifest entry path).
+        resource: String,
+        /// A description of why provisioning failed.
+        reason: String,
+        /// An actionable suggestion for resolution.
+        suggestion: String,
+    },
+
+    /// Referenced session does not exist or has been stopped.
+    #[cfg(feature = "workspace")]
+    #[error("session '{handle}' not found. It may have been stopped or expired.")]
+    SessionNotFound {
+        /// The session handle that was not found.
+        handle: String,
+    },
+
+    /// Referenced snapshot does not exist.
+    #[cfg(feature = "workspace")]
+    #[error("snapshot '{id}' not found. It may have been deleted or expired.")]
+    SnapshotNotFound {
+        /// The snapshot ID that was not found.
+        id: String,
+    },
+
+    /// Path traversal attempt detected.
+    #[cfg(feature = "workspace")]
+    #[error("path traversal rejected: '{path}' escapes workspace root. Use relative paths only.")]
+    PathTraversal {
+        /// The offending path that attempted to escape the workspace root.
+        path: String,
+    },
+
+    /// Docker is not available on this host.
+    #[cfg(feature = "workspace")]
+    #[error("Docker unavailable: {reason}. Ensure Docker daemon is running and accessible.")]
+    DockerUnavailable {
+        /// A description of why Docker is unavailable.
+        reason: String,
+    },
+
+    /// Session exceeded its configured timeout.
+    #[cfg(feature = "workspace")]
+    #[error(
+        "session timed out after {timeout:?}. Consider increasing session_timeout in SandboxConfig."
+    )]
+    SessionTimeout {
+        /// The timeout duration that was exceeded.
+        timeout: Duration,
+    },
 }
 
 impl From<std::io::Error> for SandboxError {
@@ -94,6 +149,30 @@ impl From<SandboxError> for adk_core::AdkError {
             }
             SandboxError::PolicyViolation(_) => {
                 (ErrorCategory::InvalidInput, "code.sandbox_policy_violation")
+            }
+            #[cfg(feature = "workspace")]
+            SandboxError::ProvisionFailed { .. } => {
+                (ErrorCategory::Internal, "code.sandbox_provision_failed")
+            }
+            #[cfg(feature = "workspace")]
+            SandboxError::SessionNotFound { .. } => {
+                (ErrorCategory::NotFound, "code.sandbox_session_not_found")
+            }
+            #[cfg(feature = "workspace")]
+            SandboxError::SnapshotNotFound { .. } => {
+                (ErrorCategory::NotFound, "code.sandbox_snapshot_not_found")
+            }
+            #[cfg(feature = "workspace")]
+            SandboxError::PathTraversal { .. } => {
+                (ErrorCategory::InvalidInput, "code.sandbox_path_traversal")
+            }
+            #[cfg(feature = "workspace")]
+            SandboxError::DockerUnavailable { .. } => {
+                (ErrorCategory::Unavailable, "code.sandbox_docker_unavailable")
+            }
+            #[cfg(feature = "workspace")]
+            SandboxError::SessionTimeout { .. } => {
+                (ErrorCategory::Timeout, "code.sandbox_session_timeout")
             }
         };
         adk_core::AdkError::new(ErrorComponent::Code, category, code, err.to_string())

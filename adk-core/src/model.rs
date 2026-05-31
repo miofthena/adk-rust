@@ -32,6 +32,19 @@ pub trait Llm: Send + Sync {
     fn schema_adapter(&self) -> &dyn SchemaAdapter {
         &GenericSchemaAdapter
     }
+
+    /// Returns `true` if this model is configured to use a server-managed
+    /// environment (e.g., Gemini Interactions API) where the provider owns
+    /// the tool-calling loop and filesystem.
+    ///
+    /// This is used at agent build time to detect conflicts with client-side
+    /// sandbox tools that would produce competing filesystems.
+    ///
+    /// Default implementation returns `false`. Override in providers that
+    /// support server-managed environments.
+    fn uses_interactions_api(&self) -> bool {
+        false
+    }
 }
 
 /// A request to an LLM provider.

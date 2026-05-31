@@ -137,6 +137,10 @@ mongodb-memory = ["memory", "adk-memory/mongodb-memory"]
 neo4j-memory = ["memory", "adk-memory/neo4j-memory"]
 auth-bridge = ["auth", "server", "adk-auth/auth-bridge"]
 
+# Sandbox workspace features (forwarded to adk-sandbox and adk-runner)
+sandbox-workspace = ["sandbox", "runner", "adk-sandbox/workspace", "adk-runner/sandbox-runner"]
+sandbox-docker = ["sandbox-workspace", "adk-sandbox/workspace-docker"]
+
 # Realtime transport features (forwarded to adk-realtime)
 vertex-live = ["realtime", "adk-realtime/vertex-live"]
 livekit = ["realtime", "adk-realtime/livekit"]

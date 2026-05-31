@@ -115,6 +115,11 @@ pub struct LlmAgent {
     /// Only created when enhanced plugins are registered (zero overhead otherwise).
     #[cfg(feature = "enhanced-plugins")]
     enhanced_plugin_manager: Option<Arc<EnhancedPluginManager>>,
+    /// Optional sandbox configuration for workspace lifecycle management.
+    /// When present, the SandboxRunner uses this to provision and bind tools.
+    /// The config does NOT add tools directly — that is SandboxRunner's responsibility.
+    #[cfg(feature = "sandbox")]
+    sandbox_config: Option<adk_sandbox::workspace::SandboxConfig>,
 }
 
 impl std::fmt::Debug for LlmAgent {
@@ -131,6 +136,17 @@ impl std::fmt::Debug for LlmAgent {
 }
 
 impl LlmAgent {
+    /// Returns the sandbox configuration attached to this agent, if any.
+    ///
+    /// The `SandboxRunner` uses this to provision a workspace and bind tools.
+    /// Returns `None` when no sandbox config was set on the builder.
+    ///
+    /// Requires the `sandbox` feature.
+    #[cfg(feature = "sandbox")]
+    pub fn sandbox_config(&self) -> Option<&adk_sandbox::workspace::SandboxConfig> {
+        self.sandbox_config.as_ref()
+    }
+
     async fn apply_input_guardrails(
         ctx: Arc<dyn InvocationContext>,
         input_guardrails: Arc<GuardrailSet>,
@@ -226,6 +242,9 @@ pub struct LlmAgentBuilder {
     /// Enhanced plugins to register on the built agent.
     #[cfg(feature = "enhanced-plugins")]
     enhanced_plugins: Vec<Arc<dyn EnhancedPlugin>>,
+    /// Optional sandbox configuration for workspace lifecycle management.
+    #[cfg(feature = "sandbox")]
+    sandbox_config: Option<adk_sandbox::workspace::SandboxConfig>,
 }
 
 impl LlmAgentBuilder {
@@ -271,6 +290,8 @@ impl LlmAgentBuilder {
             output_guardrails: GuardrailSet::new(),
             #[cfg(feature = "enhanced-plugins")]
             enhanced_plugins: Vec::new(),
+            #[cfg(feature = "sandbox")]
+            sandbox_config: None,
         }
     }
 
@@ -679,6 +700,46 @@ impl LlmAgentBuilder {
         self
     }
 
+    /// Attach a sandbox configuration for workspace lifecycle management.
+    ///
+    /// When a `SandboxConfig` is attached, the `SandboxRunner` will provision
+    /// a workspace, bind tools based on enabled capabilities, and manage the
+    /// session lifecycle. The config does NOT add tools directly to the agent —
+    /// tool binding is the responsibility of the `SandboxRunner`.
+    ///
+    /// When no `SandboxConfig` is attached, the agent behaves identically to
+    /// its behavior before this feature was introduced.
+    ///
+    /// Requires the `sandbox` feature.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_sandbox::workspace::{SandboxConfig, Capability, Manifest};
+    /// use std::collections::HashSet;
+    /// use std::sync::Arc;
+    /// use std::time::Duration;
+    ///
+    /// let config = SandboxConfig {
+    ///     client: Arc::new(my_client),
+    ///     manifest: Manifest { entries: vec![] },
+    ///     capabilities: HashSet::from([Capability::Shell, Capability::Filesystem]),
+    ///     snapshot_on_stop: true,
+    ///     session_timeout: Duration::from_secs(600),
+    ///     command_timeout: Duration::from_secs(120),
+    /// };
+    ///
+    /// let agent = LlmAgentBuilder::new("coding-agent")
+    ///     .model(model)
+    ///     .sandbox_config(config)
+    ///     .build()?;
+    /// ```
+    #[cfg(feature = "sandbox")]
+    pub fn sandbox_config(mut self, config: adk_sandbox::workspace::SandboxConfig) -> Self {
+        self.sandbox_config = Some(config);
+        self
+    }
+
     /// Build the [`LlmAgent`], returning an error if no model was set.
     pub fn build(self) -> Result<LlmAgent> {
         let model = self.model.ok_or_else(|| adk_core::AdkError::agent("Model is required"))?;
@@ -690,6 +751,27 @@ impl LlmAgentBuilder {
                     "Duplicate sub-agent name: {}",
                     agent.name()
                 )));
+            }
+        }
+
+        // Validate: Gemini Interactions API + client-side sandbox tools conflict.
+        // These provide competing filesystems and would produce nondeterministic behavior.
+        #[cfg(feature = "sandbox")]
+        if let Some(ref sandbox_cfg) = self.sandbox_config {
+            use adk_sandbox::workspace::Capability;
+            if model.uses_interactions_api()
+                && (sandbox_cfg.capabilities.contains(&Capability::Shell)
+                    || sandbox_cfg.capabilities.contains(&Capability::Filesystem))
+            {
+                return Err(adk_core::AdkError::new(
+                    adk_core::ErrorComponent::Agent,
+                    adk_core::ErrorCategory::InvalidInput,
+                    "code.gemini_interactions_conflict",
+                    "Cannot combine Gemini Interactions API (server-managed environment) \
+                     with client-side sandbox tools (Shell/Filesystem). These provide \
+                     competing filesystems and would produce nondeterministic behavior. \
+                     Either disable use_interactions_api or remove sandbox capabilities.",
+                ));
             }
         }
 
@@ -741,6 +823,8 @@ impl LlmAgentBuilder {
             output_guardrails: Arc::new(self.output_guardrails),
             #[cfg(feature = "enhanced-plugins")]
             enhanced_plugin_manager,
+            #[cfg(feature = "sandbox")]
+            sandbox_config: self.sandbox_config,
         })
     }
 }

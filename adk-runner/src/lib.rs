@@ -51,6 +51,8 @@ mod context;
 pub mod intra_compaction;
 mod launcher;
 mod runner;
+#[cfg(feature = "sandbox-runner")]
+pub mod sandbox_runner;
 pub mod tool_concurrency;
 
 pub use builder::RunnerConfigBuilder;

@@ -1406,6 +1406,11 @@ impl Llm for GeminiModel {
         &*ADAPTER
     }
 
+    #[cfg(feature = "gemini-interactions")]
+    fn uses_interactions_api(&self) -> bool {
+        self.transport == GeminiTransport::Interactions
+    }
+
     #[adk_telemetry::instrument(
         name = "call_llm",
         skip(self, req),
@@ -1657,10 +1662,7 @@ mod native_tool_tests {
 
         // Parameters should be normalized (no $schema, no additionalProperties)
         let params = &decl_json["parameters"];
-        assert!(
-            params.get("$schema").is_none(),
-            "parameters.$schema should be stripped"
-        );
+        assert!(params.get("$schema").is_none(), "parameters.$schema should be stripped");
         assert!(
             params.get("additionalProperties").is_none(),
             "parameters.additionalProperties should be stripped"

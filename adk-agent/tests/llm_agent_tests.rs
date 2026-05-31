@@ -502,3 +502,152 @@ async fn test_llm_agent_legacy_builder_path_has_no_skill_injection() {
 
     assert!(!combined.contains("[skill:"));
 }
+
+// --- Gemini Interactions conflict validation tests ---
+
+#[cfg(feature = "sandbox")]
+mod sandbox_conflict_tests {
+    use super::*;
+    use adk_sandbox::workspace::{Capability, Manifest, SandboxConfig};
+    use std::collections::HashSet;
+
+    /// A mock LLM that reports `uses_interactions_api() == true`.
+    struct InteractionsLlm;
+
+    #[async_trait]
+    impl adk_core::Llm for InteractionsLlm {
+        fn name(&self) -> &str {
+            "gemini-interactions-mock"
+        }
+
+        fn uses_interactions_api(&self) -> bool {
+            true
+        }
+
+        async fn generate_content(
+            &self,
+            _request: adk_core::LlmRequest,
+            _stream: bool,
+        ) -> adk_core::Result<adk_core::LlmResponseStream> {
+            unimplemented!("not needed for build-time validation tests")
+        }
+    }
+
+    /// A mock SandboxClient (required by SandboxConfig).
+    struct MockSandboxClient;
+
+    #[async_trait]
+    impl adk_sandbox::workspace::SandboxClient for MockSandboxClient {
+        async fn provision(
+            &self,
+            _manifest: &Manifest,
+        ) -> std::result::Result<adk_sandbox::workspace::SessionHandle, adk_sandbox::SandboxError>
+        {
+            unimplemented!()
+        }
+        async fn start(
+            &self,
+            _handle: &adk_sandbox::workspace::SessionHandle,
+        ) -> std::result::Result<
+            Box<dyn adk_sandbox::workspace::SandboxSession>,
+            adk_sandbox::SandboxError,
+        > {
+            unimplemented!()
+        }
+        async fn stop(
+            &self,
+            _handle: &adk_sandbox::workspace::SessionHandle,
+        ) -> std::result::Result<(), adk_sandbox::SandboxError> {
+            unimplemented!()
+        }
+        async fn snapshot(
+            &self,
+            _handle: &adk_sandbox::workspace::SessionHandle,
+        ) -> std::result::Result<adk_sandbox::workspace::SnapshotId, adk_sandbox::SandboxError>
+        {
+            unimplemented!()
+        }
+        async fn resume(
+            &self,
+            _snapshot_id: &adk_sandbox::workspace::SnapshotId,
+        ) -> std::result::Result<adk_sandbox::workspace::SessionHandle, adk_sandbox::SandboxError>
+        {
+            unimplemented!()
+        }
+    }
+
+    fn make_sandbox_config(capabilities: HashSet<Capability>) -> SandboxConfig {
+        SandboxConfig::new(Arc::new(MockSandboxClient), Manifest::new(vec![]), capabilities)
+    }
+
+    #[test]
+    fn test_interactions_api_with_shell_capability_returns_error() {
+        let config = make_sandbox_config(HashSet::from([Capability::Shell]));
+
+        let result = LlmAgentBuilder::new("test")
+            .model(Arc::new(InteractionsLlm))
+            .sandbox_config(config)
+            .build();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, "code.gemini_interactions_conflict");
+        assert!(err.message.contains("Cannot combine Gemini Interactions API"));
+    }
+
+    #[test]
+    fn test_interactions_api_with_filesystem_capability_returns_error() {
+        let config = make_sandbox_config(HashSet::from([Capability::Filesystem]));
+
+        let result = LlmAgentBuilder::new("test")
+            .model(Arc::new(InteractionsLlm))
+            .sandbox_config(config)
+            .build();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, "code.gemini_interactions_conflict");
+    }
+
+    #[test]
+    fn test_interactions_api_with_both_capabilities_returns_error() {
+        let config =
+            make_sandbox_config(HashSet::from([Capability::Shell, Capability::Filesystem]));
+
+        let result = LlmAgentBuilder::new("test")
+            .model(Arc::new(InteractionsLlm))
+            .sandbox_config(config)
+            .build();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, "code.gemini_interactions_conflict");
+    }
+
+    #[test]
+    fn test_non_interactions_model_with_sandbox_config_succeeds() {
+        // MockLlm returns false for uses_interactions_api (default)
+        let config =
+            make_sandbox_config(HashSet::from([Capability::Shell, Capability::Filesystem]));
+
+        let result = LlmAgentBuilder::new("test")
+            .model(Arc::new(MockLlm::new("hello")))
+            .sandbox_config(config)
+            .build();
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_interactions_api_with_empty_capabilities_succeeds() {
+        // No Shell or Filesystem capabilities — should be allowed
+        let config = make_sandbox_config(HashSet::new());
+
+        let result = LlmAgentBuilder::new("test")
+            .model(Arc::new(InteractionsLlm))
+            .sandbox_config(config)
+            .build();
+
+        assert!(result.is_ok());
+    }
+}

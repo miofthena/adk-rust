@@ -45,11 +45,20 @@
 //! the request/response schema. The types here track the `Api-Revision:
 //! 2026-05-20` schema (the `steps` schema with polymorphic `response_format`).
 
+mod agent_config;
 mod builder;
+pub mod environment;
+pub mod managed_agent;
 mod model;
 mod sse;
+pub(crate) mod validate;
 
+pub use agent_config::AgentConfig;
 pub use builder::InteractionBuilder;
+pub use environment::{
+    Environment, EnvironmentConfig, EnvironmentSource, NetworkConfig, NetworkRule, TransformMap,
+};
+pub use managed_agent::{CreateAgentRequest, ListAgentsResponse, ManagedAgentBuilder, SavedAgent};
 pub use model::{
     AudioContent, Content, CreateInteractionRequest, DocumentContent, GenerationConfig,
     ImageConfig, ImageContent, Input, Interaction, InteractionStatus, ModalityTokens,

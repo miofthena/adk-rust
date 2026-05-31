@@ -7,6 +7,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::agent_config::AgentConfig;
+use super::environment::Environment;
+
 // ══════════════════════════════════════════════════════════════════════
 // Content blocks (polymorphic on `type`)
 // ══════════════════════════════════════════════════════════════════════
@@ -581,6 +584,12 @@ pub struct CreateInteractionRequest {
     /// The service tier for the interaction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<ServiceTier>,
+    /// Environment configuration: fresh sandbox, resume by ID, or inline config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<Environment>,
+    /// Managed-agent-specific configuration (e.g. Deep Research options).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_config: Option<AgentConfig>,
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -697,6 +706,9 @@ pub struct Interaction {
     /// ISO 8601 last-updated time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated: Option<String>,
+    /// The server-assigned environment ID, if an environment was attached.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment_id: Option<String>,
 }
 
 fn default_status() -> InteractionStatus {

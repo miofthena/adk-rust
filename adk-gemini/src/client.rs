@@ -522,6 +522,13 @@ pub enum Error {
         /// Description of the validation failure.
         message: String,
     },
+
+    /// A request failed client-side validation before dispatch.
+    #[snafu(display("validation error: {message}"))]
+    Validation {
+        /// Description of the validation failure.
+        message: String,
+    },
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -821,6 +828,15 @@ impl GeminiClient {
         id: &str,
     ) -> Result<crate::interactions::Interaction, Error> {
         self.backend.cancel_interaction(id).await
+    }
+
+    #[cfg(feature = "interactions")]
+    #[instrument(skip_all, fields(agent.id = request.id))]
+    pub(crate) async fn create_agent(
+        &self,
+        request: crate::interactions::managed_agent::CreateAgentRequest,
+    ) -> Result<crate::interactions::managed_agent::SavedAgent, Error> {
+        self.backend.create_agent(request).await
     }
 }
 
@@ -1499,6 +1515,160 @@ impl Gemini {
     ) -> Result<backend::BackendStream<crate::interactions::InteractionSseEvent>, Error> {
         request.stream = Some(true);
         self.client.create_interaction_stream(request).await
+    }
+
+    // ── Managed Agents ──────────────────────────────────────────────────
+
+    /// Create a managed-agent configuration on the server.
+    ///
+    /// Returns a [`ManagedAgentBuilder`](crate::interactions::managed_agent::ManagedAgentBuilder)
+    /// that accumulates configuration and saves the agent when
+    /// [`build_and_save()`](crate::interactions::managed_agent::ManagedAgentBuilder::build_and_save)
+    /// is called.
+    ///
+    /// This is a direct-client capability and is not wired into the
+    /// `adk-runner` `Agent` trait.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::Gemini;
+    ///
+    /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// let gemini = Gemini::new("YOUR_API_KEY")?;
+    ///
+    /// let agent = gemini.create_agent()
+    ///     .id("my-coding-agent")
+    ///     .base_agent("antigravity-preview-05-2026")
+    ///     .system_instruction("You are a Rust expert.")
+    ///     .build_and_save()
+    ///     .await?;
+    ///
+    /// println!("Created agent: {:?}", agent.id);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "interactions")]
+    #[instrument(skip_all)]
+    pub fn create_agent(&self) -> crate::interactions::managed_agent::ManagedAgentBuilder {
+        crate::interactions::managed_agent::ManagedAgentBuilder::new(self.client.clone())
+    }
+
+    /// List saved managed-agent configurations.
+    ///
+    /// Returns a [`ListAgentsResponse`](crate::interactions::managed_agent::ListAgentsResponse)
+    /// containing the first page of saved agents. Use the `next_page_token`
+    /// field to fetch subsequent pages by calling the backend directly.
+    ///
+    /// This is a direct-client capability and is not wired into the
+    /// `adk-runner` `Agent` trait.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::Gemini;
+    ///
+    /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// let gemini = Gemini::new("YOUR_API_KEY")?;
+    ///
+    /// let response = gemini.list_agents().await?;
+    /// for agent in &response.agents {
+    ///     println!("Agent: {:?}", agent.id);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "interactions")]
+    #[instrument(skip_all)]
+    pub async fn list_agents(
+        &self,
+    ) -> Result<crate::interactions::managed_agent::ListAgentsResponse, Error> {
+        self.client.backend.list_agents(None, None).await
+    }
+
+    /// Get a saved managed-agent configuration by ID.
+    ///
+    /// Returns the [`SavedAgent`](crate::interactions::managed_agent::SavedAgent)
+    /// with the given identifier.
+    ///
+    /// This is a direct-client capability and is not wired into the
+    /// `adk-runner` `Agent` trait.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::Gemini;
+    ///
+    /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// let gemini = Gemini::new("YOUR_API_KEY")?;
+    ///
+    /// let agent = gemini.get_agent("my-coding-agent").await?;
+    /// println!("Base agent: {:?}", agent.base_agent);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "interactions")]
+    #[instrument(skip_all)]
+    pub async fn get_agent(
+        &self,
+        id: &str,
+    ) -> Result<crate::interactions::managed_agent::SavedAgent, Error> {
+        self.client.backend.get_agent(id).await
+    }
+
+    /// Delete a saved managed-agent configuration by ID.
+    ///
+    /// Removes the agent from the server. This operation is irreversible.
+    ///
+    /// This is a direct-client capability and is not wired into the
+    /// `adk-runner` `Agent` trait.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::Gemini;
+    ///
+    /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// let gemini = Gemini::new("YOUR_API_KEY")?;
+    ///
+    /// gemini.delete_agent("my-coding-agent").await?;
+    /// println!("Agent deleted.");
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "interactions")]
+    #[instrument(skip_all)]
+    pub async fn delete_agent(&self, id: &str) -> Result<(), Error> {
+        self.client.backend.delete_agent(id).await
+    }
+
+    /// Download an environment snapshot as a tar archive.
+    ///
+    /// Given an environment ID (returned as `environment_id` on an
+    /// [`Interaction`](crate::interactions::Interaction) response), downloads
+    /// the full workspace snapshot as raw bytes.
+    ///
+    /// This is a direct-client capability and is not wired into the
+    /// `adk-runner` `Agent` trait.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::Gemini;
+    ///
+    /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// let gemini = Gemini::new("YOUR_API_KEY")?;
+    ///
+    /// let snapshot = gemini.download_environment("env_abc123").await?;
+    /// std::fs::write("workspace.tar", &snapshot)?;
+    /// println!("Downloaded {} bytes", snapshot.len());
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "interactions")]
+    #[instrument(skip_all)]
+    pub async fn download_environment(&self, env_id: &str) -> Result<Vec<u8>, Error> {
+        self.client.backend.download_environment(env_id).await
     }
 }
 

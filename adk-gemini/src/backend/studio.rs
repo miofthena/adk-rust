@@ -564,6 +564,99 @@ impl GeminiBackend for StudioBackend {
         let response = Self::check_response(response).await?;
         response.json().await.context(DecodeResponseSnafu)
     }
+
+    // ── Managed Agents ──────────────────────────────────────────────────
+
+    #[cfg(feature = "interactions")]
+    async fn create_agent(
+        &self,
+        request: crate::interactions::managed_agent::CreateAgentRequest,
+    ) -> Result<crate::interactions::managed_agent::SavedAgent, Error> {
+        let url = self.build_url_with_suffix("agents")?;
+        let response = self
+            .http_client
+            .post(url)
+            .header("Api-Revision", crate::interactions::API_REVISION)
+            .json(&request)
+            .send()
+            .await
+            .context(PerformRequestNewSnafu)?;
+        let response = Self::check_response(response).await?;
+        response.json().await.context(DecodeResponseSnafu)
+    }
+
+    #[cfg(feature = "interactions")]
+    async fn list_agents(
+        &self,
+        page_size: Option<u32>,
+        page_token: Option<String>,
+    ) -> Result<crate::interactions::managed_agent::ListAgentsResponse, Error> {
+        let mut url = self.build_url_with_suffix("agents")?;
+        if let Some(size) = page_size {
+            url.query_pairs_mut().append_pair("pageSize", &size.to_string());
+        }
+        if let Some(ref token) = page_token {
+            url.query_pairs_mut().append_pair("pageToken", token);
+        }
+        let response = self
+            .http_client
+            .get(url)
+            .header("Api-Revision", crate::interactions::API_REVISION)
+            .send()
+            .await
+            .context(PerformRequestNewSnafu)?;
+        let response = Self::check_response(response).await?;
+        response.json().await.context(DecodeResponseSnafu)
+    }
+
+    #[cfg(feature = "interactions")]
+    async fn get_agent(
+        &self,
+        id: &str,
+    ) -> Result<crate::interactions::managed_agent::SavedAgent, Error> {
+        let url = self.build_url_with_suffix(&format!("agents/{id}"))?;
+        let response = self
+            .http_client
+            .get(url)
+            .header("Api-Revision", crate::interactions::API_REVISION)
+            .send()
+            .await
+            .context(PerformRequestNewSnafu)?;
+        let response = Self::check_response(response).await?;
+        response.json().await.context(DecodeResponseSnafu)
+    }
+
+    #[cfg(feature = "interactions")]
+    async fn delete_agent(&self, id: &str) -> Result<(), Error> {
+        let url = self.build_url_with_suffix(&format!("agents/{id}"))?;
+        let response = self
+            .http_client
+            .delete(url)
+            .header("Api-Revision", crate::interactions::API_REVISION)
+            .send()
+            .await
+            .context(PerformRequestNewSnafu)?;
+        Self::check_response(response).await?;
+        Ok(())
+    }
+
+    #[cfg(feature = "interactions")]
+    async fn download_environment(&self, env_id: &str) -> Result<Vec<u8>, Error> {
+        let suffix = format!("/download/v1beta/files/environment-{env_id}:download");
+        let mut url =
+            self.base_url.join(&suffix).context(ConstructUrlSnafu { suffix: suffix.clone() })?;
+        url.query_pairs_mut().append_pair("alt", "media");
+
+        let response = self
+            .http_client
+            .get(url)
+            .header("Api-Revision", crate::interactions::API_REVISION)
+            .send()
+            .await
+            .context(PerformRequestNewSnafu)?;
+        let response = Self::check_response(response).await?;
+        response.bytes().await.context(DecodeResponseSnafu).map(|b| b.to_vec())
+    }
 }
 
 #[cfg(test)]

@@ -25,6 +25,10 @@ Rust client library for Google's Gemini API — content generation, streaming, f
 - Grounding with Google Search
 - Vertex AI (Google Cloud) support with ADC, service accounts, and WIF
 - Multimodal input (images, video, PDF, audio)
+- **Interactions API (Beta)** — stateful step-timeline, SSE streaming, server-side history
+- **Managed Agents** — Antigravity (coding agent with sandbox) and Deep Research
+- **Environments** — sandbox provisioning, resume, sources (inline/git/GCS), network allowlists
+- **Managed Agent CRUD** — create, list, get, delete saved agent configurations
 
 ## Installation
 

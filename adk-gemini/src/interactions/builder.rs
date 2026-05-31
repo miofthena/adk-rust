@@ -6,11 +6,14 @@ use crate::backend::BackendStream;
 use crate::{
     ThinkingLevel,
     client::{Error, GeminiClient, Model},
+    interactions::agent_config::AgentConfig,
+    interactions::environment::Environment,
     interactions::model::{
         Content, CreateInteractionRequest, GenerationConfig, Input, ResponseFormat,
         ResponseModality, ServiceTier, Step, ThinkingSummaries, Tool, ToolChoice,
     },
     interactions::sse::InteractionSseEvent,
+    interactions::validate::validate_interaction_request,
 };
 
 /// A fluent builder for `POST /v1beta/interactions`.
@@ -234,6 +237,125 @@ impl InteractionBuilder {
         self
     }
 
+    /// Attach an environment to the interaction.
+    ///
+    /// An environment is a server-side sandbox workspace. You can request a fresh
+    /// remote sandbox, resume an existing one by ID, or provide an inline
+    /// configuration with sources and network rules.
+    ///
+    /// This is a direct-client capability and is not wired into the `adk-runner`
+    /// `Agent` trait.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::interactions::Environment;
+    ///
+    /// // Fresh remote sandbox
+    /// let interaction = gemini
+    ///     .create_interaction()
+    ///     .antigravity()
+    ///     .environment(Environment::remote())
+    ///     .input_text("Fix the failing test in src/lib.rs")
+    ///     .send()
+    ///     .await?;
+    ///
+    /// // Resume an existing environment
+    /// let interaction = gemini
+    ///     .create_interaction()
+    ///     .antigravity()
+    ///     .environment(Environment::resume("env_abc123"))
+    ///     .input_text("Now run the tests")
+    ///     .send()
+    ///     .await?;
+    /// ```
+    pub fn environment(mut self, env: Environment) -> Self {
+        self.request.environment = Some(env);
+        self
+    }
+
+    /// Attach a managed-agent configuration to the interaction.
+    ///
+    /// Currently only Deep Research uses an agent config; Antigravity takes none.
+    ///
+    /// This is a direct-client capability and is not wired into the `adk-runner`
+    /// `Agent` trait.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::interactions::AgentConfig;
+    ///
+    /// let interaction = gemini
+    ///     .create_interaction()
+    ///     .deep_research("deep-research-preview-04-2026")
+    ///     .agent_config(AgentConfig::deep_research())
+    ///     .input_text("Research the state of WebAssembly in 2026")
+    ///     .send()
+    ///     .await?;
+    /// ```
+    pub fn agent_config(mut self, config: AgentConfig) -> Self {
+        self.request.agent_config = Some(config);
+        self
+    }
+
+    /// Convenience: configure for Antigravity.
+    ///
+    /// Sets `agent = "antigravity-preview-05-2026"`, clears `model`, and sets
+    /// `store = true`. Does **not** set `background` (Antigravity forbids it).
+    ///
+    /// This is a direct-client capability and is not wired into the `adk-runner`
+    /// `Agent` trait.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::interactions::Environment;
+    ///
+    /// let interaction = gemini
+    ///     .create_interaction()
+    ///     .antigravity()
+    ///     .environment(Environment::remote())
+    ///     .input_text("Fix the failing test in src/lib.rs")
+    ///     .send()
+    ///     .await?;
+    /// ```
+    pub fn antigravity(mut self) -> Self {
+        self.request.agent = Some("antigravity-preview-05-2026".to_string());
+        self.request.model = None;
+        self.request.store = Some(true);
+        self
+    }
+
+    /// Convenience: configure for Deep Research.
+    ///
+    /// Sets `agent` to the given ID, clears `model`, and sets `background = true`
+    /// and `store = true`. Deep Research requires background execution.
+    ///
+    /// This is a direct-client capability and is not wired into the `adk-runner`
+    /// `Agent` trait.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::interactions::AgentConfig;
+    ///
+    /// let interaction = gemini
+    ///     .create_interaction()
+    ///     .deep_research("deep-research-preview-04-2026")
+    ///     .agent_config(AgentConfig::deep_research())
+    ///     .input_text("Research the state of WebAssembly in 2026")
+    ///     .send()
+    ///     .await?;
+    /// ```
+    pub fn deep_research(mut self, agent_id: impl Into<String>) -> Self {
+        self.request.agent = Some(agent_id.into());
+        self.request.model = None;
+        self.request.background = Some(true);
+        self.request.store = Some(true);
+        self
+    }
+
     fn generation_config_mut(&mut self) -> &mut GenerationConfig {
         self.request.generation_config.get_or_insert_with(GenerationConfig::default)
     }
@@ -252,12 +374,14 @@ impl InteractionBuilder {
     /// Send the request and return the resulting [`Interaction`](crate::interactions::Interaction).
     pub async fn send(mut self) -> Result<crate::interactions::Interaction, Error> {
         self.finalize_input();
+        validate_interaction_request(&self.request)?;
         self.client.create_interaction(self.request).await
     }
 
     /// Send the request and return a stream of [`InteractionSseEvent`] values.
     pub async fn stream(mut self) -> Result<BackendStream<InteractionSseEvent>, Error> {
         self.finalize_input();
+        validate_interaction_request(&self.request)?;
         self.request.stream = Some(true);
         self.client.create_interaction_stream(self.request).await
     }

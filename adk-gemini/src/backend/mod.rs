@@ -240,4 +240,44 @@ pub trait GeminiBackend: Send + Sync + std::fmt::Debug {
     ) -> Result<crate::interactions::Interaction, Error> {
         Err(Error::GoogleCloudUnsupported { operation: "cancelInteraction" })
     }
+
+    /// Create a managed-agent configuration on the server.
+    #[cfg(feature = "interactions")]
+    async fn create_agent(
+        &self,
+        _request: crate::interactions::managed_agent::CreateAgentRequest,
+    ) -> Result<crate::interactions::managed_agent::SavedAgent, Error> {
+        Err(Error::GoogleCloudUnsupported { operation: "createAgent" })
+    }
+
+    /// List saved managed-agent configurations with pagination.
+    #[cfg(feature = "interactions")]
+    async fn list_agents(
+        &self,
+        _page_size: Option<u32>,
+        _page_token: Option<String>,
+    ) -> Result<crate::interactions::managed_agent::ListAgentsResponse, Error> {
+        Err(Error::GoogleCloudUnsupported { operation: "listAgents" })
+    }
+
+    /// Retrieve a single saved managed-agent configuration by ID.
+    #[cfg(feature = "interactions")]
+    async fn get_agent(
+        &self,
+        _id: &str,
+    ) -> Result<crate::interactions::managed_agent::SavedAgent, Error> {
+        Err(Error::GoogleCloudUnsupported { operation: "getAgent" })
+    }
+
+    /// Delete a saved managed-agent configuration by ID.
+    #[cfg(feature = "interactions")]
+    async fn delete_agent(&self, _id: &str) -> Result<(), Error> {
+        Err(Error::GoogleCloudUnsupported { operation: "deleteAgent" })
+    }
+
+    /// Download an environment snapshot as raw bytes given an environment ID.
+    #[cfg(feature = "interactions")]
+    async fn download_environment(&self, _env_id: &str) -> Result<Vec<u8>, Error> {
+        Err(Error::GoogleCloudUnsupported { operation: "downloadEnvironment" })
+    }
 }

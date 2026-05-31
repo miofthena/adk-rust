@@ -49,6 +49,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     accessors mirroring the official SDKs.
   - Requests pin the `Api-Revision: 2026-05-20` steps-schema contract.
   - Example: `cargo run -p adk-gemini --features interactions --example interactions_basic`.
+- **adk-gemini: Managed Agents & Environments** — extends the Interactions API
+  with Google's Managed Agents (Antigravity, Deep Research) and sandbox
+  Environments. All code behind the existing `interactions` feature flag:
+  - `InteractionBuilder::antigravity()` — one-call setup for the Antigravity
+    coding agent (`agent = "antigravity-preview-05-2026"`, `store = true`).
+  - `InteractionBuilder::deep_research(agent_id)` — one-call setup for Deep
+    Research agents (`background = true`, `store = true`).
+  - `InteractionBuilder::environment(env)` — attach a sandbox (fresh `"remote"`,
+    resume by ID, or inline `EnvironmentConfig` with sources + network rules).
+  - `InteractionBuilder::agent_config(config)` — attach agent-specific config
+    (Deep Research thinking summaries, visualization, collaborative planning).
+  - `Environment`, `EnvironmentConfig`, `EnvironmentSource` (Inline, Repository,
+    Gcs), `NetworkConfig` (Disabled, Allowlist), `NetworkRule`, `TransformMap`
+    wire types with full serde round-trip and `#[non_exhaustive]`.
+  - `AgentConfig` enum (DeepResearch + forward-compatible `Other` variant).
+  - Client-side validation: model/agent mutual exclusivity, Antigravity
+    constraints (no background, no unsupported gen params, no function tools, no
+    audio/video/document), Deep Research constraints (background required).
+  - Managed Agent CRUD: `Gemini::create_agent()` (fluent builder),
+    `list_agents()`, `get_agent(id)`, `delete_agent(id)`.
+  - `Gemini::download_environment(env_id)` — download sandbox snapshot as tar.
+  - `Interaction.environment_id` response field for sandbox resume.
+  - `TransformMap` custom `Debug` redacts credential values in logs.
+  - Example: `cargo run -p gemini-managed-agents` (4 practical agents with
+    streaming, auto-cancellation, and live progress display).
 - **adk-model / adk-rust: `gemini-interactions` feature** — forwards the
   Interactions API surface up the stack. `adk_model::gemini::interactions`
   re-exports the module when enabled.

@@ -55,7 +55,11 @@ adk-model/       LLM provider facade: Gemini, OpenAI (Chat + Responses), Anthrop
                  (feature-gated)
 adk-gemini/      Dedicated Gemini client with GeminiBackend trait (Studio + Vertex AI),
                  ThinkingConfig validation, built-in tool support (Search, Code Execution,
-                 Maps, File Search, Computer Use)
+                 Maps, File Search, Computer Use). Interactions API (Beta, `interactions`
+                 feature): stateful step-timeline client with server-side history,
+                 streaming step events, and lifecycle (get/delete/cancel). The runtime
+                 transport lives in adk-model (`gemini-interactions`): a `GeminiModel`
+                 toggle that drives the standard LlmAgent/Runner through this endpoint.
 adk-anthropic/   Dedicated Anthropic API client: streaming, adaptive thinking, prompt caching,
                  citations, context management, fast mode, vision, PDF processing, pricing.
                  Supports Claude Opus 4.7, Sonnet 4.6, Haiku 4.5.
@@ -151,6 +155,8 @@ docs/official_docs/    Comprehensive documentation site content
 `gemini` is the default. All others are opt-in:
 
 - `gemini` (default), `openai`, `anthropic`, `deepseek`, `ollama`, `groq`
+- `gemini-vertex` — Gemini via Vertex AI (Studio + Vertex backends)
+- `gemini-interactions` — Gemini Interactions API (Beta); re-exports `adk_model::gemini::interactions` AND provides the runtime transport toggle on `GeminiModel` (`use_interactions_api`) that drives the standard `LlmAgent`/`Runner`/tool loop through the Interactions endpoint (allowlist, stateful continuity, `bypass_multi_tools_limit`)
 - `openrouter` — OpenRouter native chat, responses, routing, discovery, and credits APIs
 - `bedrock` — Amazon Bedrock via AWS SDK Converse API
 - `azure-ai` — Azure AI Inference endpoints
@@ -202,6 +208,7 @@ Production backend features (require external infrastructure, NOT included in `f
 
 Specialist opt-in features:
 - `yaml-agent`, `agent-registry` — YAML agent config and registry REST API
+- `gemini-interactions` — Gemini Interactions API (Beta): wire client surface (server-side history, step timeline) plus the runtime transport on `GeminiModel` (`use_interactions_api`) driving the standard `LlmAgent`/`Runner`
 - `mcp`, `mcp-http`, `mcp-sampling` — MCP transport and sampling support
 - `slack`, `bigquery`, `spanner` — Native toolsets
 - `action`, `action-http`, `action-trigger`, `action-db`, `action-code`, `action-email`, `action-rss`, `action-full` — Action node executors

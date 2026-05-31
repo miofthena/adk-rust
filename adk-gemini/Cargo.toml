@@ -25,6 +25,7 @@ repository = "https://github.com/zavora-ai/adk-rust"
 [features]
 default = ["studio"]
 studio = []
+interactions = []
 vertex = ["dep:google-cloud-aiplatform-v1", "dep:google-cloud-auth", "dep:google-cloud-gax"]
 backtrace = ["snafu/backtraces-impl-backtrace-crate"]
 
@@ -119,6 +120,11 @@ path = "examples/gemini_pro_example.rs"
 [[example]]
 name = "generation_config"
 path = "examples/generation_config.rs"
+
+[[example]]
+name = "interactions_basic"
+path = "examples/interactions_basic.rs"
+required-features = ["interactions"]
 
 [[example]]
 name = "google_search"
@@ -327,6 +333,10 @@ path = "tests/multimodal_fn_response_tests.rs"
 [[test]]
 name = "schema_property_tests"
 path = "tests/schema_property_tests.rs"
+
+[[test]]
+name = "interactions_tests"
+path = "tests/interactions_tests.rs"
 
 [dev-dependencies.display-error-chain]
 version = "0.2"

@@ -19,10 +19,10 @@ Guardrails framework for ADK agents - input/output validation, content filtering
 
 ```toml
 [dependencies]
-adk-guardrail = "0.9.2"
+adk-guardrail = "0.10.0"
 
 # With JSON schema validation (default)
-adk-guardrail = { version = "0.9.2", features = ["schema"] }
+adk-guardrail = { version = "0.10.0", features = ["schema"] }
 ```
 
 ## Quick Start
@@ -63,7 +63,7 @@ let filter = ContentFilter::blocked_keywords(vec!["forbidden".into()]);
 Requires `guardrails` feature on `adk-agent`:
 
 ```toml
-adk-agent = { version = "0.9.2", features = ["guardrails"] }
+adk-agent = { version = "0.10.0", features = ["guardrails"] }
 ```
 
 ```rust

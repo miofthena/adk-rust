@@ -322,6 +322,7 @@ impl Agent for LlmConditionalAgent {
                 contents: vec![Content::new("user").with_text(&classification_prompt)],
                 tools: HashMap::new(),
                 config: None,
+                previous_response_id: None,
             };
 
             // Call LLM for classification

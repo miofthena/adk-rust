@@ -60,15 +60,26 @@ pub enum Model {
     /// Gemini 3.1 Pro preview — strongest reasoning.
     #[serde(rename = "models/gemini-3.1-pro-preview")]
     Gemini31ProPreview,
-    /// Gemini 3.1 Flash Lite preview — cheapest and fastest.
+    /// Gemini 3.1 Flash Lite — GA, most cost-efficient for high-volume agentic tasks.
+    #[serde(rename = "models/gemini-3.1-flash-lite")]
+    Gemini31FlashLite,
+    /// Gemini 3.1 Flash Lite preview (deprecated).
+    #[deprecated(note = "Shut down May 25, 2026. Use Model::Gemini31FlashLite instead.")]
     #[serde(rename = "models/gemini-3.1-flash-lite-preview")]
     Gemini31FlashLitePreview,
+    /// Gemini 3.1 Flash Image (Nano Banana 2) — GA native image generation.
+    #[serde(rename = "models/gemini-3.1-flash-image")]
+    Gemini31FlashImage,
 
     // ── Gemini 3 ─────────────────────────────────────────────────
     /// Gemini 3 Pro preview.
     #[serde(rename = "models/gemini-3-pro-preview")]
     Gemini3ProPreview,
-    /// Gemini 3 Pro Image preview — multimodal output.
+    /// Gemini 3 Pro Image (Nano Banana Pro) — GA multimodal output.
+    #[serde(rename = "models/gemini-3-pro-image")]
+    Gemini3ProImage,
+    /// Gemini 3 Pro Image preview (deprecated).
+    #[deprecated(note = "Shut down June 25, 2026. Use Model::Gemini3ProImage instead.")]
     #[serde(rename = "models/gemini-3-pro-image-preview")]
     Gemini3ProImagePreview,
     /// Gemini 3 Flash preview — good balance of speed and capability.
@@ -135,6 +146,9 @@ pub enum Model {
     Gemini20FlashLite001,
 
     // ── Embedding models ─────────────────────────────────────────
+    /// Gemini Embedding 2 — GA multimodal embeddings (text, image, video, audio, PDF).
+    #[serde(rename = "models/gemini-embedding-2")]
+    GeminiEmbedding2,
     /// Gemini Embedding 001 (3072 dimensions). Replaces text-embedding-004.
     #[serde(rename = "models/gemini-embedding-001")]
     GeminiEmbedding001,
@@ -156,8 +170,11 @@ impl Model {
         match self {
             Model::Gemini35Flash => "models/gemini-3.5-flash",
             Model::Gemini31ProPreview => "models/gemini-3.1-pro-preview",
+            Model::Gemini31FlashLite => "models/gemini-3.1-flash-lite",
             Model::Gemini31FlashLitePreview => "models/gemini-3.1-flash-lite-preview",
+            Model::Gemini31FlashImage => "models/gemini-3.1-flash-image",
             Model::Gemini3ProPreview => "models/gemini-3-pro-preview",
+            Model::Gemini3ProImage => "models/gemini-3-pro-image",
             Model::Gemini3ProImagePreview => "models/gemini-3-pro-image-preview",
             Model::Gemini3FlashPreview => "models/gemini-3-flash-preview",
             Model::Gemini25Pro => "models/gemini-2.5-pro",
@@ -180,6 +197,7 @@ impl Model {
             Model::Gemini20FlashExp => "models/gemini-2.0-flash-exp",
             Model::Gemini20FlashLite => "models/gemini-2.0-flash-lite",
             Model::Gemini20FlashLite001 => "models/gemini-2.0-flash-lite-001",
+            Model::GeminiEmbedding2 => "models/gemini-embedding-2",
             Model::GeminiEmbedding001 => "models/gemini-embedding-001",
             Model::TextEmbedding004 => "models/text-embedding-004",
             Model::Custom(model) => model,
@@ -192,8 +210,11 @@ impl Model {
         let model_id = match self {
             Model::Gemini35Flash => "gemini-3.5-flash",
             Model::Gemini31ProPreview => "gemini-3.1-pro-preview",
+            Model::Gemini31FlashLite => "gemini-3.1-flash-lite",
             Model::Gemini31FlashLitePreview => "gemini-3.1-flash-lite-preview",
+            Model::Gemini31FlashImage => "gemini-3.1-flash-image",
             Model::Gemini3ProPreview => "gemini-3-pro-preview",
+            Model::Gemini3ProImage => "gemini-3-pro-image",
             Model::Gemini3ProImagePreview => "gemini-3-pro-image-preview",
             Model::Gemini3FlashPreview => "gemini-3-flash-preview",
             Model::Gemini25Pro => "gemini-2.5-pro",
@@ -212,6 +233,7 @@ impl Model {
             Model::Gemini20FlashExp => "gemini-2.0-flash-exp",
             Model::Gemini20FlashLite => "gemini-2.0-flash-lite",
             Model::Gemini20FlashLite001 => "gemini-2.0-flash-lite-001",
+            Model::GeminiEmbedding2 => "gemini-embedding-2",
             Model::GeminiEmbedding001 => "gemini-embedding-001",
             Model::TextEmbedding004 => "text-embedding-004",
             Model::Custom(model) => {
@@ -238,8 +260,12 @@ impl From<String> for Model {
             "gemini-3.5-flash" => Self::Gemini35Flash,
             // Gemini 3.1 models
             "gemini-3.1-pro-preview" => Self::Gemini31ProPreview,
+            "gemini-3.1-flash-lite" => Self::Gemini31FlashLite,
+            "gemini-3.1-flash-lite-preview" => Self::Gemini31FlashLitePreview,
+            "gemini-3.1-flash-image" => Self::Gemini31FlashImage,
             // Gemini 3 models
             "gemini-3-pro-preview" => Self::Gemini3ProPreview,
+            "gemini-3-pro-image" => Self::Gemini3ProImage,
             "gemini-3-pro-image-preview" => Self::Gemini3ProImagePreview,
             "gemini-3-flash-preview" => Self::Gemini3FlashPreview,
             // Gemini 2.5 models
@@ -261,6 +287,7 @@ impl From<String> for Model {
             "gemini-2.0-flash-lite" => Self::Gemini20FlashLite,
             "gemini-2.0-flash-lite-001" => Self::Gemini20FlashLite001,
             // Embedding models
+            "gemini-embedding-2" => Self::GeminiEmbedding2,
             "gemini-embedding-001" => Self::GeminiEmbedding001,
             "text-embedding-004" => Self::TextEmbedding004,
             _ => Self::Custom(model),
@@ -734,6 +761,66 @@ impl GeminiClient {
         name: &str,
     ) -> Result<crate::model_info::ModelInfo, Error> {
         self.backend.get_model(name).await
+    }
+
+    // ── Interactions API (Beta) ─────────────────────────────────────────
+
+    #[cfg(feature = "interactions")]
+    #[instrument(skip_all, fields(
+        model = request.model.as_deref(),
+        agent = request.agent.as_deref(),
+        tools.count = request.tools.len(),
+        background = request.background,
+        previous.interaction.present = request.previous_interaction_id.is_some(),
+    ), err)]
+    pub(crate) async fn create_interaction(
+        &self,
+        request: crate::interactions::CreateInteractionRequest,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        if let Some(ref gc) = request.generation_config {
+            gc.validate().map_err(|message| Error::InvalidGenerationConfig { message })?;
+        }
+        self.backend.create_interaction(request).await
+    }
+
+    #[cfg(feature = "interactions")]
+    #[instrument(skip_all, fields(
+        model = request.model.as_deref(),
+        agent = request.agent.as_deref(),
+    ), err)]
+    pub(crate) async fn create_interaction_stream(
+        &self,
+        request: crate::interactions::CreateInteractionRequest,
+    ) -> Result<backend::BackendStream<crate::interactions::InteractionSseEvent>, Error> {
+        if let Some(ref gc) = request.generation_config {
+            gc.validate().map_err(|message| Error::InvalidGenerationConfig { message })?;
+        }
+        self.backend.create_interaction_stream(request).await
+    }
+
+    #[cfg(feature = "interactions")]
+    #[instrument(skip_all, fields(interaction.id = id, include.input = include_input))]
+    pub(crate) async fn get_interaction(
+        &self,
+        id: &str,
+        include_input: bool,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        self.backend.get_interaction(id, include_input).await
+    }
+
+    #[cfg(feature = "interactions")]
+    #[instrument(skip_all, fields(interaction.id = id))]
+    pub(crate) async fn delete_interaction(&self, id: &str) -> Result<(), Error> {
+        self.backend.delete_interaction(id).await
+    }
+
+    #[cfg(feature = "interactions")]
+    #[instrument(skip_all, fields(interaction.id = id))]
+    pub(crate) async fn cancel_interaction(
+        &self,
+        id: &str,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        self.backend.cancel_interaction(id).await
     }
 }
 
@@ -1324,6 +1411,94 @@ impl Gemini {
     /// ```
     pub async fn get_model(&self, name: &str) -> Result<crate::model_info::ModelInfo, Error> {
         self.client.get_model(name).await
+    }
+
+    // ── Interactions API (Beta) ─────────────────────────────────────────
+
+    /// Start building an interaction using the Interactions API (Beta).
+    ///
+    /// The Interactions API is Google's new direction for the Gemini API. It
+    /// provides server-side history, a typed step timeline, and native agentic
+    /// workflows. See [`crate::interactions`] for details.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adk_gemini::{Gemini, Model};
+    ///
+    /// let gemini = Gemini::new("YOUR_API_KEY")?;
+    /// let interaction = gemini
+    ///     .create_interaction()
+    ///     .model(Model::Gemini35Flash)
+    ///     .input_text("Hello!")
+    ///     .send()
+    ///     .await?;
+    /// println!("{}", interaction.output_text().unwrap_or_default());
+    /// ```
+    #[cfg(feature = "interactions")]
+    pub fn create_interaction(&self) -> crate::interactions::InteractionBuilder {
+        crate::interactions::InteractionBuilder::new(self.client.clone())
+    }
+
+    /// Retrieve a stored interaction by ID.
+    ///
+    /// Set `include_input` to also return the `user_input` steps.
+    #[cfg(feature = "interactions")]
+    pub async fn get_interaction(
+        &self,
+        id: &str,
+        include_input: bool,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        self.client.get_interaction(id, include_input).await
+    }
+
+    /// Delete a stored interaction by ID.
+    #[cfg(feature = "interactions")]
+    pub async fn delete_interaction(&self, id: &str) -> Result<(), Error> {
+        self.client.delete_interaction(id).await
+    }
+
+    /// Cancel a running background interaction by ID.
+    #[cfg(feature = "interactions")]
+    pub async fn cancel_interaction(
+        &self,
+        id: &str,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        self.client.cancel_interaction(id).await
+    }
+
+    /// Send a pre-built [`CreateInteractionRequest`](crate::interactions::CreateInteractionRequest)
+    /// (non-streaming).
+    ///
+    /// The fluent [`create_interaction`](Self::create_interaction) builder is
+    /// the ergonomic entry point for most callers. This method exists for
+    /// callers that assemble a [`CreateInteractionRequest`](crate::interactions::CreateInteractionRequest)
+    /// directly (e.g. a conversion layer that maps another request type onto the
+    /// Interactions wire format) and need to dispatch it without rebuilding it
+    /// field-by-field through the builder.
+    #[cfg(feature = "interactions")]
+    pub async fn send_interaction(
+        &self,
+        request: crate::interactions::CreateInteractionRequest,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        self.client.create_interaction(request).await
+    }
+
+    /// Send a pre-built [`CreateInteractionRequest`](crate::interactions::CreateInteractionRequest)
+    /// as an SSE stream.
+    ///
+    /// Forces `stream = true` on the request before dispatching, mirroring the
+    /// builder's [`stream`](crate::interactions::InteractionBuilder::stream)
+    /// entry point. Like [`send_interaction`](Self::send_interaction), this is
+    /// for callers that assemble the request directly rather than through the
+    /// fluent builder.
+    #[cfg(feature = "interactions")]
+    pub async fn send_interaction_stream(
+        &self,
+        mut request: crate::interactions::CreateInteractionRequest,
+    ) -> Result<backend::BackendStream<crate::interactions::InteractionSseEvent>, Error> {
+        request.stream = Some(true);
+        self.client.create_interaction_stream(request).await
     }
 }
 

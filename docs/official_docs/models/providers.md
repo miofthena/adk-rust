@@ -41,14 +41,14 @@ Add the providers you need to your `Cargo.toml`:
 ```toml
 [dependencies]
 # Pick one or more providers:
-adk-model = { version = "0.9.2", features = ["gemini"] }        # Google Gemini (default)
-adk-model = { version = "0.9.2", features = ["openai"] }        # OpenAI GPT-5
-adk-model = { version = "0.9.2", features = ["anthropic"] }     # Anthropic Claude
-adk-model = { version = "0.9.2", features = ["deepseek"] }      # DeepSeek
-adk-model = { version = "0.9.2", features = ["groq"] }          # Groq (ultra-fast)
+adk-model = { version = "0.10.0", features = ["gemini"] }        # Google Gemini (default)
+adk-model = { version = "0.10.0", features = ["openai"] }        # OpenAI GPT-5
+adk-model = { version = "0.10.0", features = ["anthropic"] }     # Anthropic Claude
+adk-model = { version = "0.10.0", features = ["deepseek"] }      # DeepSeek
+adk-model = { version = "0.10.0", features = ["groq"] }          # Groq (ultra-fast)
 
 # Or all cloud providers at once:
-adk-model = { version = "0.9.2", features = ["all-providers"] }
+adk-model = { version = "0.10.0", features = ["all-providers"] }
 ```
 
 ## Step 2: Set Your API Key
@@ -284,6 +284,47 @@ let model = OpenAIClient::new(config)?;
 ```
 
 > **Note**: Structured output (`output_schema`) requires backend support. Native OpenAI fully supports it; local servers may have limited support.
+
+### Gemini via the OpenAI-Compatible Endpoint
+
+Gemini models are reachable through the OpenAI Chat Completions wire format at
+`https://generativelanguage.googleapis.com/v1beta/openai`. Use the
+`OpenAICompatibleConfig::gemini(...)` preset (under the `openai` feature) with a
+`GEMINI_API_KEY` to run Gemini through the same OpenAI-compatible client you use
+for every other provider:
+
+```rust
+use adk_model::openai_compatible::{OpenAICompatible, OpenAICompatibleConfig};
+
+let api_key = std::env::var("GEMINI_API_KEY")?;
+let model = OpenAICompatible::new(
+    OpenAICompatibleConfig::gemini(api_key, "gemini-3.5-flash"),
+)?;
+```
+
+This path supports chat, streaming, function calling, structured output, and
+reasoning effort (OpenAI's `reasoning_effort` maps to Gemini thinking
+levels/budgets). Gemini-specific options — e.g. `thinking_config` with
+`include_thoughts`, or `cached_content` — are passed through the request's
+`extensions["openai"]["extra_body"]["google"]` map, which the client merges
+verbatim into the request body.
+
+> **When to use this vs `GeminiModel`**: For native Gemini features
+> (server-side tools, the Interactions API, native `ThinkingConfig`,
+> multimodal-first ergonomics), prefer
+> [`GeminiModel`](#gemini-google--default). Use the OpenAI-compatible preset when
+> you want a single uniform client across providers.
+
+**Examples** (require `GEMINI_API_KEY` or `GOOGLE_API_KEY`):
+
+```bash
+# Direct client: chat, reasoning effort, extra_body thinking, streaming,
+# function calling, structured output.
+cargo run -p adk-model --features openai --example gemini_openai_compat
+
+# The same compat client driving a normal LlmAgent in a Runner.
+cargo run -p adk-model --features openai --example gemini_openai_compat_agent
+```
 
 ### Reasoning Effort (o1, o3 Models)
 

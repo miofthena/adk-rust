@@ -39,6 +39,7 @@ impl SequencedModel {
             error_code: None,
             error_message: None,
             provider_metadata: None,
+            interaction_id: None,
         }
     }
 
@@ -57,6 +58,7 @@ impl SequencedModel {
             error_code: None,
             error_message: None,
             provider_metadata: None,
+            interaction_id: None,
         }
     }
 }

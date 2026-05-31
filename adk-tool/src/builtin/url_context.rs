@@ -1,3 +1,4 @@
+use crate::builtin::bypass::BypassMultiToolsLimit;
 use adk_core::{Result, Tool, ToolContext};
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -14,6 +15,51 @@ impl UrlContextTool {
     /// Create a new `UrlContextTool`.
     pub fn new() -> Self {
         Self
+    }
+}
+
+/// Bypass support: convert the built-in URL-context tool into a
+/// function-calling tool so it can be used alongside custom function tools
+/// under the Gemini Interactions API.
+///
+/// The converted tool declares a `url: string` function schema and performs the
+/// fetch-and-analyze behaviour by delegating to an internal single-turn agent
+/// (an `LlmAgent` configured with [`UrlContextTool`] and a Gemini model).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use adk_tool::{BypassMultiToolsLimit, UrlContextTool};
+/// use std::sync::Arc;
+///
+/// // `url_agent` is an LlmAgent with UrlContextTool + a Gemini model.
+/// let tool = UrlContextTool::new().with_bypass_multi_tools_limit(Arc::new(url_agent));
+/// assert!(!tool.is_builtin());
+/// ```
+impl BypassMultiToolsLimit for UrlContextTool {
+    fn bypass_name(&self) -> String {
+        self.name().to_string()
+    }
+
+    fn bypass_description(&self) -> String {
+        "Fetches and analyzes content from a URL to provide context.".to_string()
+    }
+
+    fn bypass_parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL whose content should be fetched and analyzed."
+                }
+            },
+            "required": ["url"]
+        })
+    }
+
+    fn bypass_query_field(&self) -> String {
+        "url".to_string()
     }
 }
 

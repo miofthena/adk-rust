@@ -145,6 +145,24 @@ impl OpenAICompatibleConfig {
         Self::new(api_key, model).with_provider_name("xai").with_base_url("https://api.x.ai/v1")
     }
 
+    /// Google Gemini (OpenAI-compatible) preset.
+    ///
+    /// Targets Gemini's OpenAI-compatibility endpoint, letting you use a Gemini
+    /// API key and a Gemini model (e.g. `gemini-3.5-flash`) through the OpenAI
+    /// Chat Completions wire format. Use a `GEMINI_API_KEY` for the `api_key`.
+    ///
+    /// For native Gemini features (thinking levels, server-side tools, the
+    /// Interactions API), prefer [`GeminiModel`](crate::gemini::GeminiModel).
+    /// This preset is for callers who want a single OpenAI-compatible code path
+    /// across providers.
+    ///
+    /// Default model suggestion: `gemini-3.5-flash`.
+    pub fn gemini(api_key: impl Into<String>, model: impl Into<String>) -> Self {
+        Self::new(api_key, model)
+            .with_provider_name("gemini")
+            .with_base_url("https://generativelanguage.googleapis.com/v1beta/openai")
+    }
+
     /// MiniMax preset.
     ///
     /// Default model: `minimax-m2.7`
@@ -607,6 +625,7 @@ impl Llm for OpenAICompatible {
                                         error_code: None,
                                         error_message: None,
                                         provider_metadata: None,
+                                        interaction_id: None,
                                     };
                                     continue;
                                 }
@@ -635,6 +654,7 @@ impl Llm for OpenAICompatible {
                                     error_code: None,
                                     error_message: None,
                                     provider_metadata: None,
+                                    interaction_id: None,
                                 };
                                 continue;
                             }
@@ -661,6 +681,7 @@ impl Llm for OpenAICompatible {
                                         error_code: None,
                                         error_message: None,
                                         provider_metadata: None,
+                                        interaction_id: None,
                                     };
                                 }
                             }
@@ -688,6 +709,7 @@ impl Llm for OpenAICompatible {
                                                     error_code: None,
                                                     error_message: None,
                                                     provider_metadata: None,
+                                                    interaction_id: None,
                                                 };
                                             }
                                         }
@@ -718,6 +740,7 @@ impl Llm for OpenAICompatible {
                         error_code: None,
                         error_message: None,
                         provider_metadata: None,
+                        interaction_id: None,
                     };
                 }
             };
@@ -770,5 +793,37 @@ impl Llm for OpenAICompatible {
 
             Ok(crate::usage_tracking::with_usage_tracking(Box::pin(response_stream), usage_span))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_preset_sets_endpoint_and_provider() {
+        let config = OpenAICompatibleConfig::gemini("test-key", "gemini-3.5-flash");
+        assert_eq!(config.provider_name, "gemini");
+        assert_eq!(config.model, "gemini-3.5-flash");
+        assert_eq!(
+            config.base_url.as_deref(),
+            Some("https://generativelanguage.googleapis.com/v1beta/openai")
+        );
+        assert_eq!(config.api_key, "test-key");
+    }
+
+    #[test]
+    fn gemini_preset_supports_reasoning_effort() {
+        // Gemini's OpenAI-compat layer maps reasoning_effort onto thinking levels.
+        let config = OpenAICompatibleConfig::gemini("k", "gemini-3.5-flash")
+            .with_reasoning_effort(ReasoningEffort::Low);
+        assert_eq!(config.reasoning_effort, Some(ReasoningEffort::Low));
+    }
+
+    #[test]
+    fn gemini_preset_builds_client() {
+        let config = OpenAICompatibleConfig::gemini("k", "gemini-3.5-flash");
+        let client = OpenAICompatible::new(config).expect("client builds");
+        assert_eq!(client.name(), "gemini-3.5-flash");
     }
 }

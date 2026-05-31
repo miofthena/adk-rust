@@ -16,7 +16,7 @@ The `Runner` manages the complete lifecycle of agent execution:
 
 ```toml
 [dependencies]
-adk-runner = "0.9.2"
+adk-runner = "0.10.0"
 ```
 
 ## RunnerConfig

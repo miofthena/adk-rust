@@ -35,21 +35,21 @@ The crate implements the `Llm` trait from `adk-core`, allowing models to be used
 
 ```toml
 [dependencies]
-adk-model = "0.9.2"
+adk-model = "0.10.0"
 ```
 
 Enable provider-specific features as needed:
 
 ```toml
 [dependencies]
-adk-model = { version = "0.9.2", features = ["openrouter"] }
+adk-model = { version = "0.10.0", features = ["openrouter"] }
 ```
 
 Or use the meta-crate:
 
 ```toml
 [dependencies]
-adk-rust = { version = "0.9.2", features = ["models"] }
+adk-rust = { version = "0.10.0", features = ["models"] }
 ```
 
 ## Quick Start
@@ -681,24 +681,24 @@ Enable specific providers with feature flags:
 ```toml
 [dependencies]
 # All providers (default)
-adk-model = { version = "0.9.2", features = ["all-providers"] }
+adk-model = { version = "0.10.0", features = ["all-providers"] }
 
 # Individual providers
-adk-model = { version = "0.9.2", features = ["gemini"] }
-adk-model = { version = "0.9.2", features = ["openai"] }
-adk-model = { version = "0.9.2", features = ["xai"] }
-adk-model = { version = "0.9.2", features = ["anthropic"] }
-adk-model = { version = "0.9.2", features = ["deepseek"] }
-adk-model = { version = "0.9.2", features = ["groq"] }
-adk-model = { version = "0.9.2", features = ["ollama"] }
-adk-model = { version = "0.9.2", features = ["fireworks"] }
-adk-model = { version = "0.9.2", features = ["together"] }
-adk-model = { version = "0.9.2", features = ["mistral"] }
-adk-model = { version = "0.9.2", features = ["perplexity"] }
-adk-model = { version = "0.9.2", features = ["cerebras"] }
-adk-model = { version = "0.9.2", features = ["sambanova"] }
-adk-model = { version = "0.9.2", features = ["bedrock"] }
-adk-model = { version = "0.9.2", features = ["azure-ai"] }
+adk-model = { version = "0.10.0", features = ["gemini"] }
+adk-model = { version = "0.10.0", features = ["openai"] }
+adk-model = { version = "0.10.0", features = ["xai"] }
+adk-model = { version = "0.10.0", features = ["anthropic"] }
+adk-model = { version = "0.10.0", features = ["deepseek"] }
+adk-model = { version = "0.10.0", features = ["groq"] }
+adk-model = { version = "0.10.0", features = ["ollama"] }
+adk-model = { version = "0.10.0", features = ["fireworks"] }
+adk-model = { version = "0.10.0", features = ["together"] }
+adk-model = { version = "0.10.0", features = ["mistral"] }
+adk-model = { version = "0.10.0", features = ["perplexity"] }
+adk-model = { version = "0.10.0", features = ["cerebras"] }
+adk-model = { version = "0.10.0", features = ["sambanova"] }
+adk-model = { version = "0.10.0", features = ["bedrock"] }
+adk-model = { version = "0.10.0", features = ["azure-ai"] }
 ```
 
 ## Related Crates

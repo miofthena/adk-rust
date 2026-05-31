@@ -171,6 +171,7 @@ impl RecordingModel {
             error_code: None,
             error_message: None,
             provider_metadata: None,
+            interaction_id: None,
         }
     }
 
@@ -186,6 +187,7 @@ impl RecordingModel {
             error_code: None,
             error_message: None,
             provider_metadata: None,
+            interaction_id: None,
         }
     }
 }
@@ -640,4 +642,76 @@ async fn test_output_guardrails_block_response() {
     let first = stream.next().await.expect("stream item");
     assert!(first.is_err());
     assert!(first.unwrap_err().to_string().contains("output guardrails blocked content"));
+}
+
+// ===== Agent-driven continuity (gemini-interactions-runtime task 10.1) =====
+//
+// The LlmAgent must populate `LlmRequest.previous_response_id` from the most
+// recent model response's `interaction_id`. This is provider-neutral plumbing:
+// the agent tracks the last `interaction_id` it observed and forwards it on the
+// next request. Verified here with a two-turn tool loop where the first turn's
+// response carries an `interaction_id` and the second request is expected to
+// carry it as `previous_response_id`.
+
+#[tokio::test]
+async fn test_agent_populates_previous_response_id_from_last_interaction_id() {
+    // Turn 1: a function call that forces a second loop iteration, carrying an
+    // interaction id (as the Interactions transport would).
+    let mut first = RecordingModel::function_calls(vec![Part::FunctionCall {
+        name: "test_tool".to_string(),
+        args: json!({}),
+        id: None,
+        thought_signature: None,
+    }]);
+    first.interaction_id = Some("v1_first".to_string());
+
+    // Turn 2: a terminal text response.
+    let second = RecordingModel::text_response("done");
+
+    let model = Arc::new(RecordingModel::new(vec![first, second]));
+    let requests = model.requests.clone();
+    let tool = Arc::new(CountingTool::new());
+
+    let agent = LlmAgentBuilder::new("continuity-agent").model(model).tool(tool).build().unwrap();
+
+    let stream = agent.run(Arc::new(TestContext::new("run tool"))).await.unwrap();
+    let _ = drain_stream(stream).await.unwrap();
+
+    let requests = requests.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert_eq!(requests.len(), 2, "expected two model calls (tool loop)");
+
+    // First turn has no prior interaction → no continuity id.
+    assert_eq!(requests[0].previous_response_id, None);
+
+    // Second turn must carry the first turn's interaction id as the
+    // provider-neutral continuity field.
+    assert_eq!(requests[1].previous_response_id, Some("v1_first".to_string()));
+}
+
+#[tokio::test]
+async fn test_agent_leaves_previous_response_id_none_without_interaction_id() {
+    // A plain provider (no interaction_id) must never populate
+    // previous_response_id — confirming the no-op for generateContent and other
+    // providers (task 10.2).
+    let first = RecordingModel::function_calls(vec![Part::FunctionCall {
+        name: "test_tool".to_string(),
+        args: json!({}),
+        id: None,
+        thought_signature: None,
+    }]);
+    let second = RecordingModel::text_response("done");
+
+    let model = Arc::new(RecordingModel::new(vec![first, second]));
+    let requests = model.requests.clone();
+    let tool = Arc::new(CountingTool::new());
+
+    let agent = LlmAgentBuilder::new("plain-agent").model(model).tool(tool).build().unwrap();
+
+    let stream = agent.run(Arc::new(TestContext::new("run tool"))).await.unwrap();
+    let _ = drain_stream(stream).await.unwrap();
+
+    let requests = requests.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert_eq!(requests.len(), 2, "expected two model calls (tool loop)");
+    assert_eq!(requests[0].previous_response_id, None);
+    assert_eq!(requests[1].previous_response_id, None);
 }

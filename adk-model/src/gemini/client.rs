@@ -11,6 +11,86 @@ use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use futures::TryStreamExt;
 
+#[cfg(feature = "gemini-interactions")]
+use super::interactions_target::InteractionTarget;
+
+/// Which Gemini wire API a [`GeminiModel`] uses.
+///
+/// Defaults to [`GeminiTransport::GenerateContent`], the classic
+/// `models/{model}:generateContent` endpoint. Selecting
+/// [`GeminiTransport::Interactions`] (via [`GeminiModel::use_interactions_api`])
+/// routes requests through the Interactions API (Beta): a stateful, step-based
+/// transport that drives the same [`adk_core::Llm`] contract.
+///
+/// Only compiled when the `gemini-interactions` feature is enabled.
+#[cfg(feature = "gemini-interactions")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GeminiTransport {
+    /// The classic `models/{model}:generateContent` API (default).
+    #[default]
+    GenerateContent,
+    /// The Interactions API (Beta): stateful, step-based.
+    Interactions,
+}
+
+/// Background-execution policy for the Interactions transport.
+///
+/// Controls whether interactions run with `background=true`. The default,
+/// [`BackgroundMode::AgentTargetsOnly`], keeps low-latency chat turns
+/// foreground while letting long-running agent targets (e.g. Deep Research)
+/// run in the background.
+///
+/// Only compiled when the `gemini-interactions` feature is enabled.
+#[cfg(feature = "gemini-interactions")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackgroundMode {
+    /// `background=true` for agent targets, `false` for model targets
+    /// (default). Keeps chat turns low-latency while letting Deep Research and
+    /// other long-running agents run in the background.
+    #[default]
+    AgentTargetsOnly,
+    /// Always run interactions with `background=true`.
+    Always,
+    /// Never run interactions in the background.
+    Never,
+}
+
+/// Faithful-to-API options for the Interactions transport.
+///
+/// The defaults mirror the Interactions API's intended posture: interactions
+/// are stored (`store = true`), stateful continuation via
+/// `previous_interaction_id` is enabled (`stateful = true`), background
+/// execution applies to agent targets only
+/// ([`BackgroundMode::AgentTargetsOnly`]), and background interactions are
+/// polled once per second.
+///
+/// Only compiled when the `gemini-interactions` feature is enabled.
+#[cfg(feature = "gemini-interactions")]
+#[derive(Debug, Clone)]
+pub struct InteractionOptions {
+    /// Whether interactions are stored server-side. Default: `true`.
+    pub store: bool,
+    /// Whether to continue conversations statefully via
+    /// `previous_interaction_id`. Default: `true`.
+    pub stateful: bool,
+    /// Background-execution policy. Default: [`BackgroundMode::AgentTargetsOnly`].
+    pub background: BackgroundMode,
+    /// Poll interval for background interactions. Default: 1 second.
+    pub poll_interval: std::time::Duration,
+}
+
+#[cfg(feature = "gemini-interactions")]
+impl Default for InteractionOptions {
+    fn default() -> Self {
+        Self {
+            store: true,
+            stateful: true,
+            background: BackgroundMode::AgentTargetsOnly,
+            poll_interval: std::time::Duration::from_secs(1),
+        }
+    }
+}
+
 /// Gemini model client wrapping the `adk-gemini` crate for the `Llm` trait.
 pub struct GeminiModel {
     client: Gemini,
@@ -22,6 +102,18 @@ pub struct GeminiModel {
     /// `ThinkingLevel` (Low/Medium/High). For Gemini 2.5 series, use
     /// `thinking_budget` (token count).
     thinking_config: Option<adk_gemini::ThinkingConfig>,
+    /// Selected wire transport. Defaults to
+    /// [`GeminiTransport::GenerateContent`]; set to
+    /// [`GeminiTransport::Interactions`] via [`GeminiModel::use_interactions_api`].
+    #[cfg(feature = "gemini-interactions")]
+    transport: GeminiTransport,
+    /// The validated Interactions destination, populated when the Interactions
+    /// transport is enabled. `None` for the generateContent transport.
+    #[cfg(feature = "gemini-interactions")]
+    interaction_target: Option<InteractionTarget>,
+    /// Faithful-to-API options for the Interactions transport.
+    #[cfg(feature = "gemini-interactions")]
+    interaction_options: InteractionOptions,
 }
 
 /// Convert a Gemini client error to a structured `AdkError` with proper category and retry hints.
@@ -75,9 +167,71 @@ fn gemini_error_to_adk(e: &adk_gemini::ClientError) -> adk_core::AdkError {
     err
 }
 
+/// Maps a terminal [`InteractionStatus`](adk_gemini::interactions::InteractionStatus)
+/// to a `Result`, surfacing the API's failure states as errors.
+///
+/// The Interactions API can terminate an interaction in `failed` or
+/// `budget_exceeded` (Requirements 7.7 / 9.2). This helper converts those two
+/// states into an [`adk_core::AdkError`] (provider `"gemini"`, category
+/// [`ErrorCategory::Internal`]) and treats every other status as success — the
+/// caller has already decided to read the interaction's content for non-failure
+/// states. Factored out as a free function so the terminal-status mapping is
+/// unit-testable without a network round-trip.
+#[cfg(feature = "gemini-interactions")]
+fn interaction_status_to_result(status: adk_gemini::interactions::InteractionStatus) -> Result<()> {
+    use adk_gemini::interactions::InteractionStatus;
+    match status {
+        InteractionStatus::Failed => Err(interaction_terminal_error(
+            "model.gemini.interactions.failed",
+            "the Gemini interaction terminated with status `failed`",
+        )),
+        InteractionStatus::BudgetExceeded => Err(interaction_terminal_error(
+            "model.gemini.interactions.budget_exceeded",
+            "the Gemini interaction terminated with status `budget_exceeded`",
+        )),
+        InteractionStatus::InProgress
+        | InteractionStatus::RequiresAction
+        | InteractionStatus::Completed
+        | InteractionStatus::Cancelled
+        | InteractionStatus::Incomplete => Ok(()),
+    }
+}
+
+/// Builds the [`adk_core::AdkError`] for a terminal Interactions failure status.
+#[cfg(feature = "gemini-interactions")]
+fn interaction_terminal_error(code: &'static str, message: &str) -> adk_core::AdkError {
+    adk_core::AdkError::new(
+        ErrorComponent::Model,
+        ErrorCategory::Internal,
+        code,
+        message.to_string(),
+    )
+    .with_provider("gemini")
+}
+
 impl GeminiModel {
     fn gemini_part_thought_signature(value: &serde_json::Value) -> Option<String> {
         value.get("thoughtSignature").and_then(serde_json::Value::as_str).map(str::to_string)
+    }
+
+    /// Builds a `GeminiModel` from a constructed client and model name with all
+    /// configurable fields defaulted.
+    ///
+    /// Centralizing struct construction here keeps the cfg-gated Interactions
+    /// fields out of every public constructor's `Self { .. }` literal.
+    fn from_client(client: Gemini, model_name: String) -> Self {
+        Self {
+            client,
+            model_name,
+            retry_config: RetryConfig::default(),
+            thinking_config: None,
+            #[cfg(feature = "gemini-interactions")]
+            transport: GeminiTransport::GenerateContent,
+            #[cfg(feature = "gemini-interactions")]
+            interaction_target: None,
+            #[cfg(feature = "gemini-interactions")]
+            interaction_options: InteractionOptions::default(),
+        }
     }
 
     /// Create a new Gemini model client with an API key and model name.
@@ -86,7 +240,7 @@ impl GeminiModel {
         let client = Gemini::with_model(api_key.into(), model_name.clone())
             .map_err(|e| adk_core::AdkError::model(e.to_string()))?;
 
-        Ok(Self { client, model_name, retry_config: RetryConfig::default(), thinking_config: None })
+        Ok(Self::from_client(client, model_name))
     }
 
     /// Create a Gemini model via Vertex AI with API key auth.
@@ -108,7 +262,7 @@ impl GeminiModel {
         )
         .map_err(|e| adk_core::AdkError::model(e.to_string()))?;
 
-        Ok(Self { client, model_name, retry_config: RetryConfig::default(), thinking_config: None })
+        Ok(Self::from_client(client, model_name))
     }
 
     /// Create a Gemini model via Vertex AI with service account JSON.
@@ -130,7 +284,7 @@ impl GeminiModel {
         )
         .map_err(|e| adk_core::AdkError::model(e.to_string()))?;
 
-        Ok(Self { client, model_name, retry_config: RetryConfig::default(), thinking_config: None })
+        Ok(Self::from_client(client, model_name))
     }
 
     /// Create a Gemini model via Vertex AI with Application Default Credentials.
@@ -150,7 +304,7 @@ impl GeminiModel {
         )
         .map_err(|e| adk_core::AdkError::model(e.to_string()))?;
 
-        Ok(Self { client, model_name, retry_config: RetryConfig::default(), thinking_config: None })
+        Ok(Self::from_client(client, model_name))
     }
 
     /// Create a Gemini model via Vertex AI with Workload Identity Federation.
@@ -172,7 +326,7 @@ impl GeminiModel {
         )
         .map_err(|e| adk_core::AdkError::model(e.to_string()))?;
 
-        Ok(Self { client, model_name, retry_config: RetryConfig::default(), thinking_config: None })
+        Ok(Self::from_client(client, model_name))
     }
 
     /// Set the retry configuration (builder pattern).
@@ -229,6 +383,93 @@ impl GeminiModel {
     /// Returns the current thinking configuration, if set.
     pub fn thinking_config(&self) -> Option<&adk_gemini::ThinkingConfig> {
         self.thinking_config.as_ref()
+    }
+
+    /// Enable (or disable) the Interactions API transport.
+    ///
+    /// When enabling, the model's configured model id is validated against the
+    /// Interactions allowlist via [`InteractionTarget::parse`]. On success the
+    /// transport switches to [`GeminiTransport::Interactions`] and the
+    /// validated target is stored. Disabling reverts to
+    /// [`GeminiTransport::GenerateContent`] and clears the stored target.
+    ///
+    /// Requires the `gemini-interactions` feature.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`adk_core::AdkError`] with category `InvalidInput` when
+    /// enabling the transport for a model id outside the Interactions
+    /// allowlist (Requirement 2.4). The error message names the supported
+    /// model and agent targets.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let model = GeminiModel::new(api_key, "gemini-2.5-flash")?
+    ///     .use_interactions_api(true)?;
+    /// ```
+    #[cfg(feature = "gemini-interactions")]
+    pub fn use_interactions_api(mut self, enabled: bool) -> Result<Self> {
+        if enabled {
+            let target = InteractionTarget::parse(&self.model_name)?;
+            self.transport = GeminiTransport::Interactions;
+            self.interaction_target = Some(target);
+        } else {
+            self.transport = GeminiTransport::GenerateContent;
+            self.interaction_target = None;
+        }
+        Ok(self)
+    }
+
+    /// Override the Interactions transport options (store, stateful, background
+    /// mode, poll interval).
+    ///
+    /// Requires the `gemini-interactions` feature. The defaults (see
+    /// [`InteractionOptions::default`]) mirror the Interactions API's intended
+    /// posture; override only when a different behavior is required.
+    #[cfg(feature = "gemini-interactions")]
+    #[must_use]
+    pub fn interaction_options(mut self, opts: InteractionOptions) -> Self {
+        self.interaction_options = opts;
+        self
+    }
+
+    /// Returns the currently selected wire transport.
+    ///
+    /// Requires the `gemini-interactions` feature.
+    #[cfg(feature = "gemini-interactions")]
+    pub fn transport(&self) -> GeminiTransport {
+        self.transport
+    }
+
+    /// Returns the configured Interactions options.
+    ///
+    /// Requires the `gemini-interactions` feature.
+    #[cfg(feature = "gemini-interactions")]
+    pub fn interaction_options_ref(&self) -> &InteractionOptions {
+        &self.interaction_options
+    }
+
+    /// Resolves whether background execution should be used for the configured
+    /// Interactions target, honoring [`BackgroundMode`].
+    ///
+    /// Returns `true` when the mode is [`BackgroundMode::Always`], `false` when
+    /// [`BackgroundMode::Never`], and (for [`BackgroundMode::AgentTargetsOnly`])
+    /// `true` only when the configured target is an agent target. When no
+    /// Interactions target is configured, agent-targets-only resolves to
+    /// `false`.
+    ///
+    /// Used by the non-streaming/background Interactions path (task 7.3); kept
+    /// here so the transport state and its policy resolution live together.
+    #[cfg(feature = "gemini-interactions")]
+    fn resolve_background(&self) -> bool {
+        match self.interaction_options.background {
+            BackgroundMode::Always => true,
+            BackgroundMode::Never => false,
+            BackgroundMode::AgentTargetsOnly => {
+                self.interaction_target.as_ref().is_some_and(InteractionTarget::is_agent)
+            }
+        }
     }
 
     fn convert_response(resp: &adk_gemini::GenerationResponse) -> Result<LlmResponse> {
@@ -390,6 +631,7 @@ impl GeminiModel {
             error_code: None,
             error_message: None,
             provider_metadata,
+            interaction_id: None,
         })
     }
 
@@ -535,6 +777,7 @@ impl GeminiModel {
             error_code: None,
             error_message: None,
             provider_metadata: None,
+            interaction_id: None,
         };
 
         (vec![synthetic_partial, response], true)
@@ -706,7 +949,7 @@ impl GeminiModel {
                     // recovered from the preceding FunctionCall (Gemini 3.x requirement)
                     let mut gemini_parts = Vec::new();
                     for part in &content.parts {
-                        if let Part::FunctionResponse { function_response, .. } = part {
+                        if let Part::FunctionResponse { function_response, id } = part {
                             let sig = fn_call_signatures.get(&function_response.name).cloned();
 
                             // Build nested FunctionResponsePart entries for multimodal data
@@ -736,6 +979,9 @@ impl GeminiModel {
                                 ),
                             );
                             gemini_fr.parts = fr_parts;
+                            // Echo the call id so Gemini 3.x strict response matching
+                            // (id + name + count) can correlate this response.
+                            gemini_fr.id = id.clone();
 
                             gemini_parts.push(adk_gemini::Part::FunctionResponse {
                                 function_response: gemini_fr,
@@ -905,6 +1151,247 @@ impl GeminiModel {
             .map_err(|(_, e)| adk_core::AdkError::model(format!("cache deletion failed: {e}")))?;
         Ok(())
     }
+
+    /// Drives a single turn through the Interactions API (Beta), non-streaming.
+    ///
+    /// This is the Interactions counterpart to
+    /// [`generate_content_internal`](Self::generate_content_internal). It builds
+    /// a [`CreateInteractionRequest`](adk_gemini::interactions::CreateInteractionRequest)
+    /// from `req` via [`interactions_convert::build_request`], sends it, polls to
+    /// completion when running in the background, maps terminal failure statuses
+    /// to errors, and converts the final interaction into a single
+    /// [`LlmResponse`].
+    ///
+    /// Behavior of note:
+    ///
+    /// - **Background completion (Requirement 7.5).** When `background` is set
+    ///   and the first response is neither terminal nor awaiting a tool result,
+    ///   the interaction is polled via
+    ///   [`get_interaction`](adk_gemini::Gemini::get_interaction) every
+    ///   `poll_interval` until it reaches a terminal or `requires_action` state.
+    /// - **Stale continuation fallback (Requirement 4.4).** If the initial send
+    ///   fails with a `NotFound` error *and* the request carried a
+    ///   `previous_response_id`, the request is transparently rebuilt without
+    ///   stateful continuation (full transcript, no `previous_interaction_id`)
+    ///   and re-sent once. The original `NotFound` is not surfaced.
+    /// - **Terminal failure (Requirements 7.7 / 9.2).** A final `failed` /
+    ///   `budget_exceeded` status becomes an [`adk_core::AdkError`].
+    ///
+    /// The streaming counterpart is
+    /// [`generate_interactions_stream`](Self::generate_interactions_stream).
+    #[cfg(feature = "gemini-interactions")]
+    async fn generate_interactions_once(&self, req: LlmRequest) -> Result<LlmResponse> {
+        use super::interactions_convert;
+
+        // The Interactions target is always populated when the transport is
+        // active (set by `use_interactions_api`); guard defensively.
+        let target = self.interaction_target.as_ref().ok_or_else(|| {
+            adk_core::AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::InvalidInput,
+                "model.gemini.interactions.missing_target",
+                "the Interactions transport is active but no validated target is configured",
+            )
+            .with_provider("gemini")
+        })?;
+
+        // Resolve the thinking level (Gemini 3 level-based reasoning). Budget-only
+        // configs (Gemini 2.5) carry no level, so this stays `None` for them.
+        let thinking_level = self.thinking_config.as_ref().and_then(|c| c.thinking_level);
+
+        let stateful = self.interaction_options.stateful;
+        let store = self.interaction_options.store;
+        let background = self.resolve_background();
+
+        // Build the request and stamp the background flag.
+        let mut request =
+            interactions_convert::build_request(&req, target, thinking_level, stateful, store)?;
+        request.background = Some(background);
+
+        // Send, with a transparent transcript fallback for a stale continuation id.
+        let interaction = match self.client.send_interaction(request.clone()).await {
+            Ok(interaction) => interaction,
+            Err(error) => {
+                let mapped = gemini_error_to_adk(&error);
+                // Requirement 4.4: a rejected `previous_interaction_id` (retention
+                // expiry) maps to NotFound. Rebuild statelessly (full transcript,
+                // no continuation id) and retry once, without surfacing the error.
+                if mapped.category == ErrorCategory::NotFound && req.previous_response_id.is_some()
+                {
+                    let mut fallback = interactions_convert::build_request(
+                        &req,
+                        target,
+                        thinking_level,
+                        /* stateful */ false,
+                        store,
+                    )?;
+                    fallback.background = Some(background);
+                    self.client
+                        .send_interaction(fallback)
+                        .await
+                        .map_err(|e| gemini_error_to_adk(&e))?
+                } else {
+                    return Err(mapped);
+                }
+            }
+        };
+
+        // Background completion: poll until terminal or awaiting a tool result.
+        let final_interaction = if background {
+            self.poll_interaction_to_completion(interaction).await?
+        } else {
+            interaction
+        };
+
+        // Requirements 7.7 / 9.2: surface terminal failure statuses as errors.
+        interaction_status_to_result(final_interaction.status)?;
+
+        Ok(interactions_convert::to_llm_response(&final_interaction))
+    }
+
+    /// Polls a background interaction until it reaches a terminal or
+    /// `requires_action` state, honoring the configured `poll_interval`
+    /// (Requirement 7.5).
+    ///
+    /// Returns immediately when the interaction is already terminal or awaiting
+    /// a tool result. Otherwise it sleeps for `poll_interval` and re-fetches via
+    /// [`get_interaction`](adk_gemini::Gemini::get_interaction) (with
+    /// `include_input = false`) until one of those states is reached, or until a
+    /// bounded safeguard (`MAX_POLL_ATTEMPTS`) trips.
+    ///
+    /// ## Cancellation (Requirement 7.6)
+    ///
+    /// True invocation-driven cancellation (calling
+    /// [`cancel_interaction`](adk_gemini::Gemini::cancel_interaction) when the
+    /// caller cancels) is **not reachable from this layer**: the [`Llm`] trait's
+    /// [`generate_content`](Llm::generate_content) signature receives only an
+    /// [`LlmRequest`] and a `stream` flag — it has no `InvocationContext` or
+    /// cancellation token. Cancellation is handled by the runner at the
+    /// event-stream boundary: when a run is cancelled the runner stops consuming
+    /// the agent's event stream, which drops this future and cancels its
+    /// `await` points (the in-flight `sleep` / `get_interaction`) cooperatively.
+    /// The polled interaction is left running server-side; reviving it to issue
+    /// an explicit `cancel_interaction` would require threading the cancellation
+    /// token through the trait, which is intentionally out of scope here (the
+    /// trait is transport-only and shared by every provider).
+    ///
+    /// The `MAX_POLL_ATTEMPTS` bound is a safeguard against an interaction that
+    /// never reaches a terminal/`requires_action` state (e.g. a server-side
+    /// stall): rather than looping forever it returns a [`ErrorCategory::Timeout`]
+    /// error so the call fails fast instead of hanging.
+    #[cfg(feature = "gemini-interactions")]
+    async fn poll_interaction_to_completion(
+        &self,
+        interaction: adk_gemini::interactions::Interaction,
+    ) -> Result<adk_gemini::interactions::Interaction> {
+        /// Upper bound on poll iterations before giving up, guarding against an
+        /// interaction that never settles. With the default 1s `poll_interval`
+        /// this is ~10 minutes; shorter intervals trade latency for a tighter
+        /// wall-clock cap. Deep Research agents complete well within this.
+        const MAX_POLL_ATTEMPTS: u32 = 600;
+
+        let mut current = interaction;
+        let mut attempts: u32 = 0;
+        while !current.status.is_terminal() && !current.status.requires_action() {
+            if attempts >= MAX_POLL_ATTEMPTS {
+                return Err(adk_core::AdkError::new(
+                    ErrorComponent::Model,
+                    ErrorCategory::Timeout,
+                    "model.gemini.interactions.poll_timeout",
+                    format!(
+                        "the Gemini interaction did not reach a terminal or requires_action \
+                         state after {MAX_POLL_ATTEMPTS} poll attempts"
+                    ),
+                )
+                .with_provider("gemini"));
+            }
+            attempts += 1;
+            tokio::time::sleep(self.interaction_options.poll_interval).await;
+            current = self
+                .client
+                .get_interaction(&current.id, false)
+                .await
+                .map_err(|e| gemini_error_to_adk(&e))?;
+        }
+        Ok(current)
+    }
+
+    /// Drives a single turn through the Interactions API (Beta) as an SSE
+    /// stream, yielding partial→final [`LlmResponse`] chunks (Requirement 7.4).
+    ///
+    /// This is the streaming counterpart to
+    /// [`generate_interactions_once`](Self::generate_interactions_once). It
+    /// builds the request the same way, forces non-background completion
+    /// (streaming and background polling are mutually exclusive completion
+    /// modes — SSE delivers the turn incrementally, so `background` is set to
+    /// `false`), opens the SSE stream via
+    /// [`send_interaction_stream`](adk_gemini::Gemini::send_interaction_stream),
+    /// and folds each [`InteractionSseEvent`](adk_gemini::interactions::InteractionSseEvent)
+    /// into chunks via [`interactions_convert::sse_event_to_chunk`].
+    ///
+    /// Stream setup (target resolution, request building, opening the SSE
+    /// connection) is fallible and returns `Err` synchronously, so
+    /// `execute_with_retry` (which wraps this in `generate_content`) can retry
+    /// transient setup failures. Errors that occur *after* the stream starts
+    /// are yielded into the stream and not retried, mirroring the
+    /// generateContent streaming path.
+    ///
+    /// The stale-continuation fallback used by the non-streaming path is not
+    /// applied here: a `NotFound` on stream setup surfaces as a normal error
+    /// (the streaming path is opt-in and lower-level; callers that need
+    /// transparent retention fallback use the default non-streaming path).
+    #[cfg(feature = "gemini-interactions")]
+    async fn generate_interactions_stream(&self, req: LlmRequest) -> Result<LlmResponseStream> {
+        use super::interactions_convert::{self, SseAccumulator, sse_event_to_chunk};
+
+        let target = self.interaction_target.as_ref().ok_or_else(|| {
+            adk_core::AdkError::new(
+                ErrorComponent::Model,
+                ErrorCategory::InvalidInput,
+                "model.gemini.interactions.missing_target",
+                "the Interactions transport is active but no validated target is configured",
+            )
+            .with_provider("gemini")
+        })?;
+
+        let thinking_level = self.thinking_config.as_ref().and_then(|c| c.thinking_level);
+        let stateful = self.interaction_options.stateful;
+        let store = self.interaction_options.store;
+
+        let mut request =
+            interactions_convert::build_request(&req, target, thinking_level, stateful, store)?;
+        // Streaming uses SSE for incremental completion, not background polling;
+        // the two are distinct completion modes (Requirement 7.4 vs 7.5). Force
+        // foreground so the server streams the turn rather than returning a
+        // background handle.
+        request.background = Some(false);
+
+        let sse_stream = self
+            .client
+            .send_interaction_stream(request)
+            .await
+            .map_err(|e| gemini_error_to_adk(&e))?;
+
+        let mapped = async_stream::stream! {
+            let mut sse_stream = sse_stream;
+            let mut acc = SseAccumulator::new();
+            while let Some(result) = sse_stream.try_next().await.transpose() {
+                match result {
+                    Ok(event) => {
+                        if let Some(chunk) = sse_event_to_chunk(event, &mut acc) {
+                            yield chunk;
+                        }
+                    }
+                    Err(e) => {
+                        adk_telemetry::error!(error = %e, "Interaction stream error");
+                        yield Err(gemini_error_to_adk(&e));
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(mapped))
+    }
 }
 
 #[async_trait]
@@ -932,8 +1419,42 @@ impl Llm for GeminiModel {
     async fn generate_content(&self, req: LlmRequest, stream: bool) -> Result<LlmResponseStream> {
         adk_telemetry::info!("Generating content");
         let usage_span = adk_telemetry::llm_generate_span("gemini", &self.model_name, stream);
-        // Retries only cover request setup/execution. Stream failures after the stream starts
-        // are yielded to the caller and are not replayed automatically.
+
+        // Dispatch on the configured transport. The default `GenerateContent`
+        // path is unchanged; the Interactions path (task 7.3/7.4) is only
+        // reachable when `use_interactions_api` switched the transport.
+        //
+        // Retries only cover request setup/execution. Stream failures after the
+        // stream starts are yielded to the caller and are not replayed
+        // automatically.
+        #[cfg(feature = "gemini-interactions")]
+        if self.transport == GeminiTransport::Interactions {
+            // Streaming and non-streaming are distinct completion modes. The
+            // streaming path consumes the Interactions SSE stream and yields
+            // partial→final chunks; the non-streaming path sends a single
+            // request and (optionally) polls a background interaction to
+            // completion. `execute_with_retry` wraps only request *setup* in
+            // both cases — once a stream starts, its mid-flight errors are
+            // surfaced to the caller rather than replayed (mirroring the
+            // generateContent streaming path).
+            if stream {
+                let mapped =
+                    execute_with_retry(&self.retry_config, is_retryable_model_error, || {
+                        self.generate_interactions_stream(req.clone())
+                    })
+                    .await?;
+                return Ok(crate::usage_tracking::with_usage_tracking(mapped, usage_span));
+            }
+            let response = execute_with_retry(&self.retry_config, is_retryable_model_error, || {
+                self.generate_interactions_once(req.clone())
+            })
+            .await?;
+            let single = async_stream::stream! {
+                yield Ok(response);
+            };
+            return Ok(crate::usage_tracking::with_usage_tracking(Box::pin(single), usage_span));
+        }
+
         let result = execute_with_retry(&self.retry_config, is_retryable_model_error, || {
             self.generate_content_internal(req.clone(), stream)
         })
@@ -1134,6 +1655,7 @@ mod tests {
             error_code: None,
             error_message: None,
             provider_metadata: None,
+            interaction_id: None,
         };
 
         let (chunks, saw_partial) = GeminiModel::stream_chunks_from_response(response, false);
@@ -1159,6 +1681,7 @@ mod tests {
             error_code: None,
             error_message: None,
             provider_metadata: None,
+            interaction_id: None,
         };
 
         let (chunks, saw_partial) = GeminiModel::stream_chunks_from_response(response, true);
@@ -1459,5 +1982,198 @@ mod tests {
         assert!(matches!(&gemini_fr.parts[0], adk_gemini::FunctionResponsePart::InlineData { .. }));
         assert!(matches!(&gemini_fr.parts[1], adk_gemini::FunctionResponsePart::InlineData { .. }));
         assert!(matches!(&gemini_fr.parts[2], adk_gemini::FunctionResponsePart::FileData { .. }));
+    }
+}
+
+#[cfg(all(test, feature = "gemini-interactions"))]
+mod interactions_transport_tests {
+    use super::*;
+
+    /// **Feature: gemini-interactions-runtime, Property 2: Default options match the API**
+    /// *For any* default `InteractionOptions`, `store == true`, `stateful == true`,
+    /// `background` is `AgentTargetsOnly`, and `poll_interval` is 1 second.
+    /// **Validates: Requirements 3.1, 3.2, 3.3**
+    #[test]
+    fn default_interaction_options_match_api_posture() {
+        let opts = InteractionOptions::default();
+        assert!(opts.store, "store should default to true");
+        assert!(opts.stateful, "stateful should default to true");
+        assert_eq!(opts.background, BackgroundMode::AgentTargetsOnly);
+        assert_eq!(opts.poll_interval, std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn new_model_defaults_to_generate_content_transport() {
+        let model = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("constructing a Gemini model should not require network");
+        assert_eq!(model.transport(), GeminiTransport::GenerateContent);
+    }
+
+    #[test]
+    fn use_interactions_api_enables_transport_for_allowlisted_model() {
+        let model = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("allowlisted model should enable the Interactions transport");
+
+        assert_eq!(model.transport(), GeminiTransport::Interactions);
+        assert_eq!(
+            model.interaction_target,
+            Some(InteractionTarget::Model("gemini-2.5-flash".to_string()))
+        );
+    }
+
+    #[test]
+    fn use_interactions_api_rejects_unsupported_model_with_invalid_input() {
+        let result = GeminiModel::new("test-key", "gemini-2.0-flash")
+            .expect("construct model")
+            .use_interactions_api(true);
+
+        let err = match result {
+            Ok(_) => panic!("unsupported model should be rejected"),
+            Err(err) => err,
+        };
+        assert_eq!(err.category, adk_core::ErrorCategory::InvalidInput);
+        assert_eq!(err.details.provider.as_deref(), Some("gemini"));
+    }
+
+    #[test]
+    fn use_interactions_api_false_reverts_to_generate_content() {
+        let model = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("enable interactions")
+            .use_interactions_api(false)
+            .expect("disabling should always succeed");
+
+        assert_eq!(model.transport(), GeminiTransport::GenerateContent);
+        assert_eq!(model.interaction_target, None);
+    }
+
+    #[test]
+    fn interaction_options_override_is_stored() {
+        let opts = InteractionOptions {
+            store: false,
+            stateful: false,
+            background: BackgroundMode::Always,
+            poll_interval: std::time::Duration::from_millis(250),
+        };
+        let model = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .interaction_options(opts.clone());
+
+        let stored = model.interaction_options_ref();
+        assert_eq!(stored.store, opts.store);
+        assert_eq!(stored.stateful, opts.stateful);
+        assert_eq!(stored.background, opts.background);
+        assert_eq!(stored.poll_interval, opts.poll_interval);
+    }
+
+    #[test]
+    fn resolve_background_honors_background_mode() {
+        // Always → true regardless of target.
+        let always = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("enable")
+            .interaction_options(InteractionOptions {
+                background: BackgroundMode::Always,
+                ..InteractionOptions::default()
+            });
+        assert!(always.resolve_background());
+
+        // Never → false regardless of target.
+        let never = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("enable")
+            .interaction_options(InteractionOptions {
+                background: BackgroundMode::Never,
+                ..InteractionOptions::default()
+            });
+        assert!(!never.resolve_background());
+
+        // AgentTargetsOnly → false for a model target.
+        let model_target = GeminiModel::new("test-key", "gemini-2.5-flash")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("enable");
+        assert!(!model_target.resolve_background());
+
+        // AgentTargetsOnly → true for an agent target.
+        let agent_target = GeminiModel::new("test-key", "deep-research-preview-04-2026")
+            .expect("construct model")
+            .use_interactions_api(true)
+            .expect("enable");
+        assert!(agent_target.resolve_background());
+    }
+
+    /// Requirements 7.7 / 9.2: a terminal `failed` status maps to an
+    /// `Internal` `AdkError` (provider `"gemini"`).
+    #[test]
+    fn terminal_failed_status_maps_to_error() {
+        use adk_gemini::interactions::InteractionStatus;
+
+        let err = interaction_status_to_result(InteractionStatus::Failed)
+            .expect_err("a failed interaction must surface an error");
+        assert_eq!(err.category, adk_core::ErrorCategory::Internal);
+        assert_eq!(err.details.provider.as_deref(), Some("gemini"));
+        assert_eq!(err.code, "model.gemini.interactions.failed");
+    }
+
+    /// Requirements 7.7 / 9.2: a terminal `budget_exceeded` status maps to an
+    /// `Internal` `AdkError` (provider `"gemini"`).
+    #[test]
+    fn terminal_budget_exceeded_status_maps_to_error() {
+        use adk_gemini::interactions::InteractionStatus;
+
+        let err = interaction_status_to_result(InteractionStatus::BudgetExceeded)
+            .expect_err("a budget_exceeded interaction must surface an error");
+        assert_eq!(err.category, adk_core::ErrorCategory::Internal);
+        assert_eq!(err.details.provider.as_deref(), Some("gemini"));
+        assert_eq!(err.code, "model.gemini.interactions.budget_exceeded");
+    }
+
+    /// Non-failure statuses (including `requires_action` and the other terminal
+    /// states the transport reads content from) do not produce an error.
+    #[test]
+    fn non_failure_statuses_are_ok() {
+        use adk_gemini::interactions::InteractionStatus;
+
+        for status in [
+            InteractionStatus::InProgress,
+            InteractionStatus::RequiresAction,
+            InteractionStatus::Completed,
+            InteractionStatus::Cancelled,
+            InteractionStatus::Incomplete,
+        ] {
+            assert!(
+                interaction_status_to_result(status).is_ok(),
+                "status {status:?} should not map to an error"
+            );
+        }
+    }
+
+    /// A constructed `failed` `Interaction` flows through the same status check
+    /// the transport uses, surfacing an error after conversion.
+    #[test]
+    fn failed_interaction_resource_surfaces_error() {
+        use adk_gemini::interactions::{Interaction, InteractionStatus};
+
+        let interaction = Interaction {
+            id: "v1_failed".to_string(),
+            model: Some("gemini-2.5-flash".to_string()),
+            agent: None,
+            status: InteractionStatus::Failed,
+            steps: Vec::new(),
+            usage: None,
+            created: None,
+            updated: None,
+        };
+
+        let err = interaction_status_to_result(interaction.status)
+            .expect_err("failed interaction must surface an error");
+        assert_eq!(err.category, adk_core::ErrorCategory::Internal);
+        assert_eq!(err.details.provider.as_deref(), Some("gemini"));
     }
 }

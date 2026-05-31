@@ -237,13 +237,13 @@ Requires Rust 1.85 or later (Rust 2024 edition). Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-adk-rust = "0.9.2"  # Minimal (default): Gemini + agent runtime + sessions
+adk-rust = "0.10.0"  # Minimal (default): Gemini + agent runtime + sessions
 
 # Need server, auth, graph workflows, eval?
-# adk-rust = { version = "0.9.2", features = ["standard"] }
+# adk-rust = { version = "0.10.0", features = ["standard"] }
 
 # Need everything (realtime, browser, RAG, payments, AWP)?
-# adk-rust = { version = "0.9.2", features = ["enterprise"] }
+# adk-rust = { version = "0.10.0", features = ["enterprise"] }
 ```
 
 **Feature tiers:**
@@ -346,7 +346,7 @@ async fn main() -> AnyhowResult<()> {
 
 ### OpenAI Example
 
-Enable OpenAI with `adk-rust = { version = "0.9.2", features = ["openai"] }`.
+Enable OpenAI with `adk-rust = { version = "0.10.0", features = ["openai"] }`.
 
 ```rust
 use adk_rust::prelude::*;
@@ -396,7 +396,7 @@ async fn main() -> AnyhowResult<()> {
 
 ### Anthropic Example
 
-Enable Anthropic with `adk-rust = { version = "0.9.2", features = ["anthropic"] }`.
+Enable Anthropic with `adk-rust = { version = "0.10.0", features = ["anthropic"] }`.
 
 ```rust
 use adk_rust::prelude::*;
@@ -420,7 +420,7 @@ async fn main() -> AnyhowResult<()> {
 
 ### DeepSeek Example
 
-Enable DeepSeek with `adk-rust = { version = "0.9.2", features = ["deepseek"] }`.
+Enable DeepSeek with `adk-rust = { version = "0.10.0", features = ["deepseek"] }`.
 
 ```rust
 use adk_rust::prelude::*;
@@ -449,7 +449,7 @@ async fn main() -> AnyhowResult<()> {
 
 ### Groq Example (Ultra-Fast)
 
-Enable Groq with `adk-rust = { version = "0.9.2", features = ["groq"] }`.
+Enable Groq with `adk-rust = { version = "0.10.0", features = ["groq"] }`.
 
 ```rust
 use adk_rust::prelude::*;
@@ -473,7 +473,7 @@ async fn main() -> AnyhowResult<()> {
 
 ### Ollama Example (Local)
 
-Enable Ollama with `adk-rust = { version = "0.9.2", features = ["ollama"] }`.
+Enable Ollama with `adk-rust = { version = "0.10.0", features = ["ollama"] }`.
 
 ```rust
 use adk_rust::prelude::*;
@@ -879,26 +879,26 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 # Minimal (default) — Gemini, agents, runner, sessions
-adk-rust = "0.9.2"
+adk-rust = "0.10.0"
 
 # Add a provider explicitly when you need it
-adk-rust = { version = "0.9.2", features = ["openai"] }
+adk-rust = { version = "0.10.0", features = ["openai"] }
 
 # Production tier without CLI provider fan-out
-adk-rust = { version = "0.9.2", features = ["standard"] }
+adk-rust = { version = "0.10.0", features = ["standard"] }
 
 # Full — enterprise plus audio, code execution, sandbox
-adk-rust = { version = "0.9.2", features = ["full"] }
+adk-rust = { version = "0.10.0", features = ["full"] }
 
 # Minimal — just agents + Gemini + runner (fastest build)
-adk-rust = { version = "0.9.2", default-features = false, features = ["minimal"] }
+adk-rust = { version = "0.10.0", default-features = false, features = ["minimal"] }
 
 # Or individual crates for finer control
-adk-core = "0.9.2"
-adk-agent = "0.9.2"
-adk-model = { version = "0.9.2", features = ["openai", "anthropic"] }
-adk-tool = "0.9.2"
-adk-runner = "0.9.2"
+adk-core = "0.10.0"
+adk-agent = "0.10.0"
+adk-model = { version = "0.10.0", features = ["openai", "anthropic"] }
+adk-tool = "0.10.0"
+adk-runner = "0.10.0"
 ```
 
 ## Examples

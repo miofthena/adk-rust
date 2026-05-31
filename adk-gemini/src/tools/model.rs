@@ -294,6 +294,14 @@ impl FunctionCall {
 pub struct FunctionResponse {
     /// The name of the function
     pub name: String,
+    /// Unique identifier correlating this response with its [`FunctionCall`].
+    ///
+    /// Gemini 3.x models enforce strict response matching: every `FunctionResponse`
+    /// must echo the `id` from the corresponding `FunctionCall`, the `name` must match,
+    /// and the response count must equal the call count. Mismatches cause the model to
+    /// return empty responses with `finish_reason: STOP`. Earlier models ignore this field.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub id: Option<String>,
     /// The response from the function
     /// This must be a valid JSON object
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -333,7 +341,16 @@ impl FunctionResponse {
             serde_json::Value::Object(_) => response,
             other => serde_json::json!({ "result": other }),
         };
-        Self { name: name.into(), response: Some(response), parts: Vec::new() }
+        Self { name: name.into(), id: None, response: Some(response), parts: Vec::new() }
+    }
+
+    /// Set the `id` correlating this response with its [`FunctionCall`].
+    ///
+    /// Required for Gemini 3.x strict response matching — pass the `id` from the
+    /// originating function call.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     /// Create with JSON response and inline data blobs.
@@ -350,7 +367,7 @@ impl FunctionResponse {
             .into_iter()
             .map(|blob| FunctionResponsePart::InlineData { inline_data: blob })
             .collect();
-        Self { name: name.into(), response: Some(response), parts }
+        Self { name: name.into(), id: None, response: Some(response), parts }
     }
 
     /// Create with JSON response and file data references.
@@ -367,7 +384,7 @@ impl FunctionResponse {
             .into_iter()
             .map(|fdr| FunctionResponsePart::FileData { file_data: fdr })
             .collect();
-        Self { name: name.into(), response: Some(response), parts }
+        Self { name: name.into(), id: None, response: Some(response), parts }
     }
 
     /// Create with inline data only (no JSON response).
@@ -376,7 +393,7 @@ impl FunctionResponse {
             .into_iter()
             .map(|blob| FunctionResponsePart::InlineData { inline_data: blob })
             .collect();
-        Self { name: name.into(), response: None, parts }
+        Self { name: name.into(), id: None, response: None, parts }
     }
 
     /// Create a new function response from a serializable type that will be parsed as JSON

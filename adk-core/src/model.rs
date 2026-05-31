@@ -46,6 +46,12 @@ pub struct LlmRequest {
     /// Tool declarations keyed by tool name.
     #[serde(skip)]
     pub tools: HashMap<String, serde_json::Value>,
+    /// Provider-neutral identifier of the previous response to continue from.
+    /// The agent populates this from the most recent event's `interaction_id`.
+    /// Maps to `previous_interaction_id` for the Gemini Interactions transport;
+    /// ignored by transports that do not support response chaining.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub previous_response_id: Option<String>,
 }
 
 /// Configuration for LLM content generation.
@@ -113,6 +119,11 @@ pub struct LlmResponse {
     /// Provider-specific metadata (e.g., response IDs, routing info).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub provider_metadata: Option<serde_json::Value>,
+    /// Interactions API: the server-assigned interaction id for this turn, used
+    /// to continue the conversation via `previous_interaction_id`. `None` for
+    /// the generateContent transport and non-Gemini providers.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub interaction_id: Option<String>,
 }
 
 /// Trait for LLM providers that support prompt caching.
@@ -280,7 +291,13 @@ pub enum FinishReason {
 impl LlmRequest {
     /// Creates a new request with the given model and contents.
     pub fn new(model: impl Into<String>, contents: Vec<Content>) -> Self {
-        Self { model: model.into(), contents, config: None, tools: HashMap::new() }
+        Self {
+            model: model.into(),
+            contents,
+            config: None,
+            tools: HashMap::new(),
+            previous_response_id: None,
+        }
     }
 
     /// Set the response schema for structured output.
@@ -311,6 +328,7 @@ impl LlmResponse {
             error_code: None,
             error_message: None,
             provider_metadata: None,
+            interaction_id: None,
         }
     }
 }
@@ -419,6 +437,7 @@ mod tests {
             error_code: None,
             error_message: None,
             provider_metadata: None,
+            interaction_id: None,
         };
 
         let encoded = serde_json::to_string(&response).expect("serialize");
@@ -515,6 +534,7 @@ mod tests {
                     "outputItems": 2
                 }
             })),
+            interaction_id: None,
         };
 
         let encoded = serde_json::to_string(&response).expect("serialize");

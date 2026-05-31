@@ -582,6 +582,7 @@ mod tests {
             .extend(files.iter().map(|f| FunctionResponsePart::FileData { file_data: f.clone() }));
         let fr = super::super::tools::FunctionResponse {
             name: "tool".to_string(),
+            id: None,
             response: Some(serde_json::json!({"ok": true})),
             parts: fr_parts,
         };
@@ -606,6 +607,7 @@ mod tests {
         use super::super::tools::FunctionResponsePart;
         let fr = super::super::tools::FunctionResponse {
             name: "get_image".to_string(),
+            id: None,
             response: Some(serde_json::json!({"image_ref": {"$ref": "photo.jpg"}})),
             parts: vec![FunctionResponsePart::InlineData {
                 inline_data: Blob::new("image/jpeg", "base64encodeddata"),

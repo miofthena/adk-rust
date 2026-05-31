@@ -572,12 +572,18 @@ impl GenerateContentRequest {
 /// Serializes as lowercase per the Gemini API contract
 /// (e.g., `"low"`, `"high"`).
 ///
-/// Available levels (model support varies):
+/// Available levels (model support and defaults vary by model):
 /// - `Minimal` — matches "no thinking" for most queries; model may still
 ///   think minimally for complex coding tasks. Not supported on Gemini 3.1 Pro.
-/// - `Low` — minimizes latency and cost; best for simple tasks.
-/// - `Medium` — balanced thinking for most tasks.
-/// - `High` — maximizes reasoning depth (default for Gemini 3 Flash and 3.1 Pro).
+/// - `Low` — minimizes latency and cost; improved for code and agentic tasks
+///   that require fewer steps.
+/// - `Medium` — balanced thinking for most tasks. Default for Gemini 3.5 Flash.
+/// - `High` — maximizes reasoning depth. Default for Gemini 3 Flash Preview and
+///   Gemini 3.1 Pro.
+///
+/// Note: `temperature`, `top_p`, and `top_k` are no longer recommended for
+/// Gemini 3.x models — their reasoning is tuned for the default sampling
+/// settings. Use `thinking_level` to control reasoning effort instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThinkingLevel {
@@ -587,8 +593,10 @@ pub enum ThinkingLevel {
     /// Low reasoning effort. Best for simple instruction following and chat.
     Low,
     /// Medium reasoning effort. Balanced thinking for most tasks.
+    /// Default for Gemini 3.5 Flash.
     Medium,
-    /// High reasoning effort — maximizes reasoning depth (default).
+    /// High reasoning effort — maximizes reasoning depth. Default for
+    /// Gemini 3 Flash Preview and Gemini 3.1 Pro.
     High,
 }
 

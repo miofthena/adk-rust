@@ -74,6 +74,7 @@ impl BaseEventsSummarizer for LlmEventSummarizer {
             }],
             tools: Default::default(),
             config: None,
+            previous_response_id: None,
         };
 
         // Generate summary (non-streaming)

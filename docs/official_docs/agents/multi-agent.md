@@ -45,7 +45,7 @@ Add dependencies to `Cargo.toml`:
 
 ```toml
 [dependencies]
-adk-rust = "0.9.2"
+adk-rust = "0.10.0"
 tokio = { version = "1", features = ["full"] }
 dotenvy = "0.15"
 ```

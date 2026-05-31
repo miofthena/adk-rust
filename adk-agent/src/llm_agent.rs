@@ -1287,6 +1287,16 @@ impl Agent for LlmAgent {
             // Created fresh per invocation so it resets between runs.
             let mut circuit_breaker_state = circuit_breaker_threshold.map(CircuitBreakerState::new);
 
+            // ===== RESPONSE-ID CONTINUITY (provider-neutral) =====
+            // Tracks the `interaction_id` carried by the most recent model
+            // response so the next request can continue the conversation via
+            // `LlmRequest.previous_response_id`. This is generic plumbing: it
+            // contains no Gemini- or transport-specific logic. Providers that
+            // do not support response chaining leave `interaction_id` as `None`,
+            // so this stays `None` and `previous_response_id` is never set
+            // (a no-op for generateContent and all other providers).
+            let mut last_interaction_id: Option<String> = None;
+
             // Multi-turn loop with max iterations
             let mut iteration = 0;
 
@@ -1336,6 +1346,13 @@ impl Agent for LlmAgent {
                     contents: conversation_history.clone(),
                     tools: tool_declarations.clone(),
                     config,
+                    // Provider-neutral continuity: carry the most recent
+                    // response's `interaction_id` forward so transports that
+                    // support response chaining (e.g. the Gemini Interactions
+                    // transport, which maps this to `previous_interaction_id`)
+                    // can continue server-side. `None` for the first turn and
+                    // for providers that never populate `interaction_id`.
+                    previous_response_id: last_interaction_id.clone(),
                 };
 
                 // ===== ENHANCED PLUGIN: BEFORE MODEL CALL =====
@@ -1417,6 +1434,11 @@ impl Agent for LlmAgent {
                     cached_event.author = agent_name.clone();
                     cached_event.llm_response.content = accumulated_content.clone();
                     cached_event.llm_response.provider_metadata = cached_response.provider_metadata.clone();
+                    // Surface and track the response id for provider-neutral continuity.
+                    cached_event.llm_response.interaction_id = cached_response.interaction_id.clone();
+                    if cached_response.interaction_id.is_some() {
+                        last_interaction_id = cached_response.interaction_id.clone();
+                    }
                     cached_event.llm_request = Some(serde_json::to_string(&request).unwrap_or_default());
                     cached_event.provider_metadata.insert("gcp.vertex.agent.llm_request".to_string(), serde_json::to_string(&request).unwrap_or_default());
                     cached_event.provider_metadata.insert("gcp.vertex.agent.llm_response".to_string(), serde_json::to_string(&cached_response).unwrap_or_default());
@@ -1522,6 +1544,7 @@ impl Agent for LlmAgent {
                             partial_event.llm_response.usage_metadata = chunk.usage_metadata.clone();
                             partial_event.llm_response.content = chunk.content.clone();
                             partial_event.llm_response.provider_metadata = chunk.provider_metadata.clone();
+                            partial_event.llm_response.interaction_id = chunk.interaction_id.clone();
 
                             // Populate long_running_tool_ids
                             if let Some(ref content) = chunk.content {
@@ -1529,6 +1552,13 @@ impl Agent for LlmAgent {
                             }
 
                             yield Ok(partial_event);
+                        }
+
+                        // Track the response id for provider-neutral continuity.
+                        // Transports that support response chaining populate
+                        // `interaction_id`; others leave it `None` (no-op).
+                        if chunk.interaction_id.is_some() {
+                            last_interaction_id = chunk.interaction_id.clone();
                         }
 
                         // Store last chunk for final event metadata
@@ -1568,6 +1598,7 @@ impl Agent for LlmAgent {
                             final_event.llm_response.finish_reason = last.finish_reason;
                             final_event.llm_response.usage_metadata = last.usage_metadata.clone();
                             final_event.llm_response.provider_metadata = last.provider_metadata.clone();
+                            final_event.llm_response.interaction_id = last.interaction_id.clone();
                             final_provider_metadata = last.provider_metadata.clone();
                             final_event.provider_metadata.insert("gcp.vertex.agent.llm_response".to_string(), serde_json::to_string(last).unwrap_or_default());
                         }

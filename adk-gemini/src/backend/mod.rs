@@ -195,4 +195,49 @@ pub trait GeminiBackend: Send + Sync + std::fmt::Debug {
     async fn get_model(&self, _name: &str) -> Result<ModelInfo, Error> {
         Err(Error::GoogleCloudUnsupported { operation: "getModel" })
     }
+
+    // ── Interactions API (Beta) ─────────────────────────────────────────
+
+    /// Create an interaction (non-streaming).
+    #[cfg(feature = "interactions")]
+    async fn create_interaction(
+        &self,
+        _request: crate::interactions::CreateInteractionRequest,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        Err(Error::GoogleCloudUnsupported { operation: "createInteraction" })
+    }
+
+    /// Create an interaction with a streaming SSE response.
+    #[cfg(feature = "interactions")]
+    async fn create_interaction_stream(
+        &self,
+        _request: crate::interactions::CreateInteractionRequest,
+    ) -> Result<BackendStream<crate::interactions::InteractionSseEvent>, Error> {
+        Err(Error::GoogleCloudUnsupported { operation: "createInteractionStream" })
+    }
+
+    /// Retrieve a stored interaction by ID.
+    #[cfg(feature = "interactions")]
+    async fn get_interaction(
+        &self,
+        _id: &str,
+        _include_input: bool,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        Err(Error::GoogleCloudUnsupported { operation: "getInteraction" })
+    }
+
+    /// Delete a stored interaction by ID.
+    #[cfg(feature = "interactions")]
+    async fn delete_interaction(&self, _id: &str) -> Result<(), Error> {
+        Err(Error::GoogleCloudUnsupported { operation: "deleteInteraction" })
+    }
+
+    /// Cancel a running background interaction by ID.
+    #[cfg(feature = "interactions")]
+    async fn cancel_interaction(
+        &self,
+        _id: &str,
+    ) -> Result<crate::interactions::Interaction, Error> {
+        Err(Error::GoogleCloudUnsupported { operation: "cancelInteraction" })
+    }
 }

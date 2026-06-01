@@ -1,12 +1,12 @@
 [package]
 name = "adk-mistralrs"
-version = "0.10.0"
-edition = "2024"
-rust-version = "1.88.0"
-license = "MIT"
-authors = ["James Karanja Maina <james.karanja@zavora.ai>"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
 description = "mistral.rs integration for ADK-Rust - native local LLM inference with Gemma 4, Qwen 3.5, Voxtral, and 50+ model architectures"
-repository = "https://github.com/zavora-ai/adk-rust"
+repository.workspace = true
 readme = "README.md"
 keywords = ["ai", "agent", "adk", "mistral", "llm", "local-inference"]
 categories = ["api-bindings", "asynchronous"]

@@ -4,11 +4,11 @@ Rust Agent Development Kit — a modular workspace of publishable crates for bui
 
 ## Dev environment
 
-- Rust 1.85.0+, edition 2024. Use `make setup` or `devenv shell` to bootstrap.
+- Rust 1.96.0+, edition 2024. Use `make setup` or `devenv shell` to bootstrap.
 - `sccache` is the compilation cache. Set `RUSTC_WRAPPER=sccache` in your shell profile.
 - On Linux, `wild` is the linker (configured in `.cargo/config.toml`). macOS uses the default linker.
 - Copy `.env.example` to `.env` for API keys. Never commit `.env` files or secrets.
-- `adk-mistralrs` is a workspace member but requires Rust 1.88+ (mistralrs 0.8.1 dependency). GPU features (`cuda`, `metal`) are opt-in.
+- `adk-mistralrs` is a workspace member using workspace version inheritance. GPU features (`cuda`, `metal`) are opt-in.
 - `CMAKE_POLICY_VERSION_MINIMUM=3.5` is needed for cmake 4.x compatibility (audiopus).
 - **Performance**: `.cargo/config.toml` sets `incremental = false` globally for `sccache` compatibility, but `Cargo.toml` `[profile.dev]` overrides this with `incremental = true` for local dev builds. CI uses the `ci` profile where the config.toml setting applies.
 

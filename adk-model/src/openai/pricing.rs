@@ -30,22 +30,74 @@ pub struct OpenAIPricing {
 }
 
 impl OpenAIPricing {
-    // ── GPT-5 family (90% cache discount) ──
+    // ── GPT-5.5 family (90% cache discount) ──
+
+    /// GPT-5.5 — next-generation flagship model.
+    pub const GPT_55: Self = Self { input: 3.00, cached_input: 0.30, output: 18.00 };
+
+    /// GPT-5.5 Pro — highest capability tier.
+    pub const GPT_55_PRO: Self = Self { input: 6.00, cached_input: 0.60, output: 36.00 };
+
+    /// GPT-5.5 Instant — fast, cost-effective GPT-5.5-class model.
+    pub const GPT_55_INSTANT: Self = Self { input: 0.50, cached_input: 0.05, output: 3.00 };
+
+    // ── GPT-5.4 family (90% cache discount) ──
 
     /// GPT-5.4 — most capable model for professional work.
-    pub const GPT_54: Self = Self { input: 2.50, cached_input: 0.25, output: 15.00 };
+    pub const GPT_54: Self = Self { input: 2.00, cached_input: 0.20, output: 14.00 };
 
     /// GPT-5.4 Mini — strongest mini model for coding, computer use, subagents.
-    pub const GPT_54_MINI: Self = Self { input: 0.75, cached_input: 0.075, output: 4.50 };
+    pub const GPT_54_MINI: Self = Self { input: 0.80, cached_input: 0.08, output: 6.00 };
 
     /// GPT-5.4 Nano — cheapest GPT-5.4-class model for high-volume tasks.
-    pub const GPT_54_NANO: Self = Self { input: 0.20, cached_input: 0.02, output: 1.25 };
+    pub const GPT_54_NANO: Self = Self { input: 0.20, cached_input: 0.02, output: 1.50 };
+
+    /// GPT-5.4 Pro — premium GPT-5.4-class model.
+    pub const GPT_54_PRO: Self = Self { input: 4.00, cached_input: 0.40, output: 28.00 };
+
+    // ── GPT-5.3 family (90% cache discount) ──
+
+    /// GPT-5.3 Codex — code-optimized model.
+    pub const GPT_53_CODEX: Self = Self { input: 1.50, cached_input: 0.15, output: 12.00 };
+
+    /// GPT-5.3 Chat Latest — latest chat-optimized model.
+    pub const GPT_53_CHAT_LATEST: Self = Self { input: 1.50, cached_input: 0.15, output: 12.00 };
+
+    // ── GPT-5.2 family (90% cache discount) ──
+
+    /// GPT-5.2 — general-purpose model.
+    pub const GPT_52: Self = Self { input: 1.25, cached_input: 0.125, output: 10.00 };
+
+    /// GPT-5.2 Codex — code-optimized GPT-5.2 variant.
+    pub const GPT_52_CODEX: Self = Self { input: 1.25, cached_input: 0.125, output: 10.00 };
+
+    // ── GPT-5.1 family (90% cache discount) ──
+
+    /// GPT-5.1 — general-purpose model.
+    pub const GPT_51: Self = Self { input: 1.00, cached_input: 0.10, output: 8.00 };
+
+    /// GPT-5.1 Codex — code-optimized GPT-5.1 variant.
+    pub const GPT_51_CODEX: Self = Self { input: 1.00, cached_input: 0.10, output: 8.00 };
+
+    /// GPT-5.1 Codex Max — high-throughput code model.
+    pub const GPT_51_CODEX_MAX: Self = Self { input: 2.00, cached_input: 0.20, output: 16.00 };
+
+    /// GPT-5.1 Codex Mini — budget code model.
+    pub const GPT_51_CODEX_MINI: Self = Self { input: 0.30, cached_input: 0.03, output: 2.40 };
+
+    // ── GPT-5 family (90% cache discount) ──
 
     /// GPT-5 — flagship agentic model.
-    pub const GPT_5: Self = Self { input: 1.25, cached_input: 0.125, output: 10.00 };
+    pub const GPT_5: Self = Self { input: 2.50, cached_input: 0.25, output: 15.00 };
 
     /// GPT-5 Mini — budget GPT-5-class model.
-    pub const GPT_5_MINI: Self = Self { input: 0.25, cached_input: 0.025, output: 2.00 };
+    pub const GPT_5_MINI: Self = Self { input: 0.60, cached_input: 0.06, output: 4.00 };
+
+    /// GPT-5 Nano — cheapest GPT-5-class model.
+    pub const GPT_5_NANO: Self = Self { input: 0.15, cached_input: 0.015, output: 1.00 };
+
+    /// GPT-5 Pro — premium GPT-5-class model.
+    pub const GPT_5_PRO: Self = Self { input: 5.00, cached_input: 0.50, output: 30.00 };
 
     // ── GPT-4.1 family (75% cache discount) ──
 
@@ -99,6 +151,22 @@ impl OpenAIPricing {
 
     /// GPT-Image-1.5 — image pricing.
     pub const GPT_IMAGE_15_IMAGE: Self = Self { input: 8.00, cached_input: 2.00, output: 32.00 };
+
+    // ── GPT Image 2 ──
+
+    /// GPT-Image-2 — text pricing.
+    pub const GPT_IMAGE_2_TEXT: Self = Self { input: 5.00, cached_input: 1.25, output: 10.00 };
+
+    /// GPT-Image-2 — image pricing.
+    pub const GPT_IMAGE_2_IMAGE: Self = Self { input: 8.00, cached_input: 2.00, output: 32.00 };
+
+    // ── Deep research models ──
+
+    /// o3 Deep Research — extended reasoning for research tasks.
+    pub const O3_DEEP_RESEARCH: Self = Self { input: 2.00, cached_input: 0.50, output: 8.00 };
+
+    /// o4-mini Deep Research — cost-effective deep research model.
+    pub const O4_MINI_DEEP_RESEARCH: Self = Self { input: 1.10, cached_input: 0.275, output: 4.40 };
 }
 
 /// Itemised cost breakdown from a single API call.
@@ -178,6 +246,92 @@ pub fn estimate_batch_cost(
     }
 }
 
+/// Look up pricing for a model by its identifier string.
+///
+/// Returns `None` for unknown models, allowing callers to use a zero-cost fallback.
+///
+/// # Arguments
+///
+/// * `model_name` - The model identifier (e.g., "gpt-5.5", "o3-deep-research")
+///
+/// # Example
+///
+/// ```rust
+/// use adk_model::openai::pricing::lookup_pricing;
+///
+/// let pricing = lookup_pricing("gpt-5.5");
+/// assert!(pricing.is_some());
+///
+/// let unknown = lookup_pricing("unknown-model");
+/// assert!(unknown.is_none());
+/// ```
+pub fn lookup_pricing(model_name: &str) -> Option<&'static OpenAIPricing> {
+    match model_name {
+        // GPT-5.5 family
+        "gpt-5.5" => Some(&OpenAIPricing::GPT_55),
+        "gpt-5.5-pro" => Some(&OpenAIPricing::GPT_55_PRO),
+        "gpt-5.5-instant" => Some(&OpenAIPricing::GPT_55_INSTANT),
+
+        // GPT-5.4 family
+        "gpt-5.4" => Some(&OpenAIPricing::GPT_54),
+        "gpt-5.4-mini" => Some(&OpenAIPricing::GPT_54_MINI),
+        "gpt-5.4-nano" => Some(&OpenAIPricing::GPT_54_NANO),
+        "gpt-5.4-pro" => Some(&OpenAIPricing::GPT_54_PRO),
+
+        // GPT-5.3 family
+        "gpt-5.3-codex" => Some(&OpenAIPricing::GPT_53_CODEX),
+        "gpt-5.3-chat-latest" => Some(&OpenAIPricing::GPT_53_CHAT_LATEST),
+
+        // GPT-5.2 family
+        "gpt-5.2" => Some(&OpenAIPricing::GPT_52),
+        "gpt-5.2-codex" => Some(&OpenAIPricing::GPT_52_CODEX),
+
+        // GPT-5.1 family
+        "gpt-5.1" => Some(&OpenAIPricing::GPT_51),
+        "gpt-5.1-codex" => Some(&OpenAIPricing::GPT_51_CODEX),
+        "gpt-5.1-codex-max" => Some(&OpenAIPricing::GPT_51_CODEX_MAX),
+        "gpt-5.1-codex-mini" => Some(&OpenAIPricing::GPT_51_CODEX_MINI),
+
+        // GPT-5 family
+        "gpt-5" => Some(&OpenAIPricing::GPT_5),
+        "gpt-5-mini" => Some(&OpenAIPricing::GPT_5_MINI),
+        "gpt-5-nano" => Some(&OpenAIPricing::GPT_5_NANO),
+        "gpt-5-pro" => Some(&OpenAIPricing::GPT_5_PRO),
+
+        // GPT-4.1 family
+        "gpt-4.1" => Some(&OpenAIPricing::GPT_41),
+        "gpt-4.1-mini" => Some(&OpenAIPricing::GPT_41_MINI),
+        "gpt-4.1-nano" => Some(&OpenAIPricing::GPT_41_NANO),
+
+        // o-series reasoning models
+        "o3" => Some(&OpenAIPricing::O3),
+        "o4-mini" => Some(&OpenAIPricing::O4_MINI),
+        "o3-mini" => Some(&OpenAIPricing::O3_MINI),
+        "o1" => Some(&OpenAIPricing::O1),
+
+        // Deep research models
+        "o3-deep-research" => Some(&OpenAIPricing::O3_DEEP_RESEARCH),
+        "o4-mini-deep-research" => Some(&OpenAIPricing::O4_MINI_DEEP_RESEARCH),
+
+        // GPT-4o family (legacy)
+        "gpt-4o" => Some(&OpenAIPricing::GPT_4O),
+        "gpt-4o-mini" => Some(&OpenAIPricing::GPT_4O_MINI),
+
+        // Realtime models
+        "gpt-realtime-1.5" => Some(&OpenAIPricing::GPT_REALTIME_15_TEXT),
+        "gpt-realtime-1.5-audio" => Some(&OpenAIPricing::GPT_REALTIME_15_AUDIO),
+
+        // Image generation models
+        "gpt-image-1.5" => Some(&OpenAIPricing::GPT_IMAGE_15_TEXT),
+        "gpt-image-1.5-image" => Some(&OpenAIPricing::GPT_IMAGE_15_IMAGE),
+        "gpt-image-2" => Some(&OpenAIPricing::GPT_IMAGE_2_TEXT),
+        "gpt-image-2-image" => Some(&OpenAIPricing::GPT_IMAGE_2_IMAGE),
+
+        // Unknown model — return None for zero-cost fallback
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,9 +358,9 @@ mod tests {
 
     #[test]
     fn gpt_5_cache_discount_90_percent() {
-        // GPT-5: input $1.25, cached $0.125 (90% off)
+        // GPT-5: input $2.50, cached $0.25 (90% off)
         let cost = estimate_cost(&OpenAIPricing::GPT_5, 0, 0, 1_000_000);
-        assert!((cost.cache_cost - 0.125).abs() < 1e-9);
+        assert!((cost.cache_cost - 0.25).abs() < 1e-9);
     }
 
     #[test]
@@ -245,5 +399,52 @@ mod tests {
         assert!(s.contains("in="));
         assert!(s.contains("cache="));
         assert!(s.contains("out="));
+    }
+
+    #[test]
+    fn lookup_known_models() {
+        assert!(lookup_pricing("gpt-5.5").is_some());
+        assert!(lookup_pricing("gpt-5.5-pro").is_some());
+        assert!(lookup_pricing("gpt-5.5-instant").is_some());
+        assert!(lookup_pricing("gpt-5.4").is_some());
+        assert!(lookup_pricing("gpt-5.4-mini").is_some());
+        assert!(lookup_pricing("gpt-5.4-nano").is_some());
+        assert!(lookup_pricing("gpt-5.4-pro").is_some());
+        assert!(lookup_pricing("gpt-5.3-codex").is_some());
+        assert!(lookup_pricing("gpt-5.3-chat-latest").is_some());
+        assert!(lookup_pricing("gpt-5.2").is_some());
+        assert!(lookup_pricing("gpt-5.2-codex").is_some());
+        assert!(lookup_pricing("gpt-5.1").is_some());
+        assert!(lookup_pricing("gpt-5.1-codex").is_some());
+        assert!(lookup_pricing("gpt-5.1-codex-max").is_some());
+        assert!(lookup_pricing("gpt-5.1-codex-mini").is_some());
+        assert!(lookup_pricing("gpt-5").is_some());
+        assert!(lookup_pricing("gpt-5-mini").is_some());
+        assert!(lookup_pricing("gpt-5-nano").is_some());
+        assert!(lookup_pricing("gpt-5-pro").is_some());
+        assert!(lookup_pricing("gpt-image-2").is_some());
+        assert!(lookup_pricing("gpt-image-2-image").is_some());
+        assert!(lookup_pricing("o3-deep-research").is_some());
+        assert!(lookup_pricing("o4-mini-deep-research").is_some());
+    }
+
+    #[test]
+    fn lookup_unknown_model_returns_none() {
+        assert!(lookup_pricing("unknown-model").is_none());
+        assert!(lookup_pricing("gpt-99").is_none());
+        assert!(lookup_pricing("").is_none());
+    }
+
+    #[test]
+    fn lookup_pricing_values_correct() {
+        let p = lookup_pricing("gpt-5.5").unwrap();
+        assert!((p.input - 3.00).abs() < 1e-9);
+        assert!((p.cached_input - 0.30).abs() < 1e-9);
+        assert!((p.output - 18.00).abs() < 1e-9);
+
+        let p = lookup_pricing("o3-deep-research").unwrap();
+        assert!((p.input - 2.00).abs() < 1e-9);
+        assert!((p.cached_input - 0.50).abs() < 1e-9);
+        assert!((p.output - 8.00).abs() < 1e-9);
     }
 }

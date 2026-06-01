@@ -123,6 +123,46 @@ impl AzureConfig {
     }
 }
 
+/// Transport mode for the Responses API.
+///
+/// Controls whether the client uses standard HTTP/SSE or a persistent
+/// WebSocket connection for lower-latency agentic workflows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponsesTransport {
+    /// Standard HTTP/SSE (default).
+    #[default]
+    Http,
+    /// Persistent WebSocket connection (requires `openai-ws` feature).
+    WebSocket,
+}
+
+/// Service tier for processing priority.
+///
+/// Controls the processing priority for API requests. Priority tier
+/// provides lower latency and more consistent token generation speed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceTier {
+    /// Automatic tier selection (default behavior).
+    Auto,
+    /// Priority processing for lower latency.
+    Priority,
+}
+
+/// Prompt cache retention duration.
+///
+/// Controls how long prompt prefixes are cached for repeated requests.
+/// Caching reduces costs for requests that share the same prompt prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptCacheRetention {
+    /// In-memory cache (shortest retention, lowest cost).
+    InMemory,
+    /// 24-hour cache retention.
+    #[serde(rename = "24h")]
+    TwentyFourHours,
+}
+
 /// Reasoning summary mode for the Responses API.
 ///
 /// Controls whether and how the model generates a summary of its internal
@@ -170,6 +210,21 @@ pub struct OpenAIResponsesConfig {
     /// Reasoning summary mode for o-series models.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_summary: Option<ReasoningSummary>,
+    /// Transport mode (HTTP or WebSocket).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport: Option<ResponsesTransport>,
+    /// Default service tier for processing priority.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ServiceTier>,
+    /// Default prompt cache retention policy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<PromptCacheRetention>,
+    /// Enable Open Responses mode for third-party compatibility.
+    ///
+    /// When enabled, relaxes strict OpenAI field validation to support
+    /// Open Responses-compatible endpoints (LM Studio, Ollama, vLLM).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_responses_mode: Option<bool>,
 }
 
 impl OpenAIResponsesConfig {
@@ -183,6 +238,10 @@ impl OpenAIResponsesConfig {
             base_url: None,
             reasoning_effort: None,
             reasoning_summary: None,
+            transport: None,
+            service_tier: None,
+            prompt_cache_retention: None,
+            open_responses_mode: None,
         }
     }
 
@@ -218,6 +277,43 @@ impl OpenAIResponsesConfig {
     #[must_use]
     pub fn with_reasoning_summary(mut self, summary: ReasoningSummary) -> Self {
         self.reasoning_summary = Some(summary);
+        self
+    }
+
+    /// Set the transport mode (HTTP or WebSocket).
+    ///
+    /// Defaults to HTTP when not set. WebSocket requires the `openai-ws` feature.
+    #[must_use]
+    pub fn with_transport(mut self, transport: ResponsesTransport) -> Self {
+        self.transport = Some(transport);
+        self
+    }
+
+    /// Set the default service tier for processing priority.
+    ///
+    /// Priority tier provides lower latency and more consistent token generation.
+    #[must_use]
+    pub fn with_service_tier(mut self, tier: ServiceTier) -> Self {
+        self.service_tier = Some(tier);
+        self
+    }
+
+    /// Set the default prompt cache retention policy.
+    ///
+    /// Controls how long prompt prefixes are cached for cost optimization.
+    #[must_use]
+    pub fn with_prompt_cache_retention(mut self, retention: PromptCacheRetention) -> Self {
+        self.prompt_cache_retention = Some(retention);
+        self
+    }
+
+    /// Enable or disable Open Responses mode.
+    ///
+    /// When enabled, relaxes strict OpenAI field validation for compatibility
+    /// with third-party Open Responses-compatible endpoints.
+    #[must_use]
+    pub fn with_open_responses_mode(mut self, enabled: bool) -> Self {
+        self.open_responses_mode = Some(enabled);
         self
     }
 }

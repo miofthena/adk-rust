@@ -24,7 +24,9 @@ serde_json.workspace = true
 serde = { workspace = true }
 async-openai = { version = "0.33", optional = true, default-features = false, features = ["rustls", "chat-completion", "responses"] }
 adk-anthropic = { workspace = true, optional = true }
+adk-server = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
 anyhow.workspace = true
 tracing.workspace = true
 chrono.workspace = true
@@ -41,6 +43,10 @@ gemini = ["dep:adk-gemini"]
 gemini-vertex = ["gemini", "adk-gemini/vertex"]
 gemini-interactions = ["gemini", "adk-gemini/interactions"]
 openai = ["dep:async-openai", "dep:reqwest"]
+openai-ws = ["openai", "dep:tokio-tungstenite"]
+openai-conversations = ["openai"]
+openai-webhooks = ["openai", "dep:adk-server"]
+openai-responses-full = ["openai-ws", "openai-conversations", "openai-webhooks"]
 xai = ["openai"]
 anthropic = ["dep:adk-anthropic"]
 deepseek = ["dep:reqwest"]

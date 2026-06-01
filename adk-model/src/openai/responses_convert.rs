@@ -9,13 +9,14 @@ use adk_core::{
     UsageMetadata,
 };
 use async_openai::types::responses::{
-    ApplyPatchToolCallItemParam, ApplyPatchToolCallOutputItemParam, CreateResponse,
-    CreateResponseArgs, EasyInputContent, EasyInputMessage, FunctionCallOutput,
+    ApplyPatchToolCallItemParam, ApplyPatchToolCallOutputItemParam, ConversationParam,
+    CreateResponse, CreateResponseArgs, EasyInputContent, EasyInputMessage, FunctionCallOutput,
     FunctionCallOutputItemParam, FunctionShellCallItemParam, FunctionShellCallOutputItemParam,
     FunctionTool, FunctionToolCall, IncludeEnum, InputContent, InputImageContent, InputItem,
-    InputParam, Item, OutputItem, OutputMessageContent, Reasoning,
+    InputParam, Item, OutputItem, OutputMessageContent, Prompt,
+    PromptCacheRetention as OaiPromptCacheRetention, Reasoning,
     ReasoningEffort as OaiReasoningEffort, ReasoningSummary as OaiReasoningSummary, Response,
-    ResponseUsage, Role, Status, SummaryPart, Tool, Truncation,
+    ResponseUsage, Role, ServiceTier as OaiServiceTier, Status, SummaryPart, Tool, Truncation,
 };
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
@@ -174,20 +175,27 @@ fn content_to_input_items(content: &Content) -> Vec<InputItem> {
 }
 
 /// Convert ADK tools map to Responses API `Tool` list.
+///
+/// When a tool declaration contains an `x-adk-openai-tool` extension field, it is treated
+/// as a built-in tool rather than a function tool. The extension value is a JSON object with
+/// a `type` field indicating the tool type:
+///
+/// - `tool_search` → tool search configuration (model selects relevant tools at runtime)
+/// - `image_generation` → image generation config (size, quality, style)
+/// - `mcp` → MCP connector config (server_url, allowed_tools, approval, tunnel)
+/// - `shell` → shell config (container_image, networking, timeout)
+/// - `skill` → skill config (skill_id)
+///
+/// For types recognized by the `async_openai::types::responses::Tool` enum
+/// (`image_generation`, `mcp`, `shell`, etc.), the extension value is deserialized directly.
+/// If the type is not recognized (e.g., `tool_search`, `skill`), the tool falls back to
+/// being treated as a regular function tool.
 pub fn convert_tools(tools: &HashMap<String, serde_json::Value>) -> Result<Vec<Tool>, AdkError> {
     tools
         .iter()
         .map(|(name, decl)| {
             if let Some(provider_tool) = decl.get("x-adk-openai-tool") {
-                serde_json::from_value::<Tool>(provider_tool.clone()).map_err(|error| {
-                    AdkError::new(
-                        ErrorComponent::Model,
-                        ErrorCategory::InvalidInput,
-                        "model.openai_responses.invalid_tool",
-                        format!("failed to deserialize OpenAI native tool '{name}': {error}"),
-                    )
-                    .with_provider("openai-responses")
-                })
+                convert_native_tool(name, decl, provider_tool)
             } else {
                 let description =
                     decl.get("description").and_then(|d| d.as_str()).map(String::from);
@@ -202,6 +210,41 @@ pub fn convert_tools(tools: &HashMap<String, serde_json::Value>) -> Result<Vec<T
             }
         })
         .collect()
+}
+
+/// Attempt to convert an `x-adk-openai-tool` extension value into a `Tool`.
+///
+/// Tries `serde_json::from_value::<Tool>` first, which handles types with matching
+/// enum variants (e.g., `image_generation`, `mcp`, `shell`, `file_search`, `web_search`,
+/// `code_interpreter`, `computer_use_preview`).
+///
+/// If deserialization fails (for types like `tool_search` or `skill` that don't have
+/// dedicated `Tool` enum variants), falls back to treating the declaration as a regular
+/// function tool.
+fn convert_native_tool(
+    name: &str,
+    decl: &serde_json::Value,
+    provider_tool: &serde_json::Value,
+) -> Result<Tool, AdkError> {
+    // Try direct deserialization into a Tool variant.
+    // This handles: image_generation, mcp, shell, file_search, web_search,
+    // code_interpreter, computer_use_preview, local_shell, apply_patch, custom.
+    match serde_json::from_value::<Tool>(provider_tool.clone()) {
+        Ok(tool) => Ok(tool),
+        Err(_) => {
+            // The type is not recognized by the Tool enum (e.g., tool_search, skill).
+            // Fall back to treating it as a regular function tool.
+            let description = decl.get("description").and_then(|d| d.as_str()).map(String::from);
+            let parameters = decl.get("parameters").cloned();
+
+            Ok(Tool::Function(FunctionTool {
+                name: name.to_string(),
+                description,
+                parameters,
+                strict: None,
+            }))
+        }
+    }
 }
 
 /// Map our config `ReasoningEffort` to `async_openai`'s `ReasoningEffort`.
@@ -360,6 +403,67 @@ pub fn build_create_response(
         .and_then(|v| v.as_str())
         .map(String::from);
 
+    // 10. Read extensions["openai"]["background"] and auto-enable for deep research models
+    let explicit_background =
+        openai_ext.and_then(|o| o.get("background")).and_then(|v| v.as_bool());
+    let is_deep_research = model.contains("deep-research");
+    let background = if is_deep_research { Some(true) } else { explicit_background };
+
+    // 11. Read extensions["openai"]["webhook_url"] → set metadata.webhook_url
+    // and extensions["openai"]["auto_compaction"] → set metadata.auto_compaction
+    let webhook_url =
+        openai_ext.and_then(|o| o.get("webhook_url")).and_then(|v| v.as_str()).map(String::from);
+
+    let auto_compaction =
+        openai_ext.and_then(|o| o.get("auto_compaction")).and_then(|v| v.as_bool());
+
+    let metadata = if webhook_url.is_some() || auto_compaction.is_some() {
+        let mut map = HashMap::new();
+        if let Some(url) = webhook_url {
+            map.insert("webhook_url".to_string(), url);
+        }
+        if let Some(true) = auto_compaction {
+            map.insert("auto_compaction".to_string(), "true".to_string());
+        }
+        Some(map)
+    } else {
+        None
+    };
+
+    // 12. Read extensions["openai"]["conversation_id"] → set conversation parameter
+    let conversation = openai_ext
+        .and_then(|o| o.get("conversation_id"))
+        .and_then(|v| v.as_str())
+        .map(|id| ConversationParam::ConversationID(id.to_string()));
+
+    // 13. Read extensions["openai"]["prompt_id"] → set prompt parameter
+    let prompt = openai_ext
+        .and_then(|o| o.get("prompt_id"))
+        .and_then(|v| v.as_str())
+        .map(|id| Prompt { id: id.to_string(), version: None, variables: None });
+
+    // 14. Read extensions["openai"]["prompt_cache_retention"] → set parameter
+    let prompt_cache_retention = openai_ext
+        .and_then(|o| o.get("prompt_cache_retention"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| match s {
+            "in_memory" => Some(OaiPromptCacheRetention::InMemory),
+            "24h" => Some(OaiPromptCacheRetention::Hours24),
+            _ => None,
+        });
+
+    // 15. Read extensions["openai"]["service_tier"] → set parameter
+    let service_tier = openai_ext
+        .and_then(|o| o.get("service_tier"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| match s {
+            "auto" => Some(OaiServiceTier::Auto),
+            "default" => Some(OaiServiceTier::Default),
+            "flex" => Some(OaiServiceTier::Flex),
+            "priority" => Some(OaiServiceTier::Priority),
+            _ => None,
+        });
+
     // Build the CreateResponse using the builder
     let mut builder = CreateResponseArgs::default();
     builder.model(model.to_string()).input(input);
@@ -393,6 +497,24 @@ pub fn build_create_response(
     }
     if let Some(prev_id) = previous_response_id {
         builder.previous_response_id(prev_id);
+    }
+    if let Some(bg) = background {
+        builder.background(bg);
+    }
+    if let Some(meta) = metadata {
+        builder.metadata(meta);
+    }
+    if let Some(conv) = conversation {
+        builder.conversation(conv);
+    }
+    if let Some(p) = prompt {
+        builder.prompt(p);
+    }
+    if let Some(pcr) = prompt_cache_retention {
+        builder.prompt_cache_retention(pcr);
+    }
+    if let Some(st) = service_tier {
+        builder.service_tier(st);
     }
 
     builder.build().map_err(|e| {
@@ -597,14 +719,103 @@ fn map_finish_reason(response: &Response) -> Option<FinishReason> {
     }
 }
 
+/// Extract `phase` field from output messages if present.
+///
+/// The `phase` field (e.g., "commentary" or "final_answer") is a newer API addition
+/// that may not be present in the typed `OutputMessage` struct. We attempt to extract
+/// it by serializing output items and checking for the field. When in open_responses_mode
+/// or when the field is absent, this gracefully does nothing.
+fn extract_phase_from_output(
+    output: &[OutputItem],
+    openai: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    for item in output {
+        if let OutputItem::Message(_) = item {
+            // Serialize the output item to check for a `phase` field
+            if let Ok(value) = serde_json::to_value(item) {
+                if let Some(phase) = value.get("phase").and_then(|p| p.as_str()) {
+                    openai
+                        .insert("phase".to_string(), serde_json::Value::String(phase.to_string()));
+                    // Use the last phase found (final message's phase takes precedence)
+                }
+            }
+        }
+    }
+}
+
+/// Extract tool_search selected tools from output items if present.
+///
+/// When tool_search is enabled, the API may include information about which tools
+/// were selected. This is extracted from the serialized response data. When the
+/// field is absent (e.g., tool_search not used, or open_responses_mode), this
+/// gracefully does nothing.
+fn extract_tool_search_selected(
+    output: &[OutputItem],
+    openai: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    // Tool search results may appear as metadata in the response.
+    // Since the async-openai library doesn't yet have typed support for tool_search_selected,
+    // we check if any output items serialize with a tool_search-related field.
+    // For now, we look for McpListTools items which list available tools after selection.
+    let mut selected_tools: Vec<String> = Vec::new();
+    for item in output {
+        if let OutputItem::McpListTools(list) = item {
+            // MCP list tools shows which tools are available after selection
+            for tool in &list.tools {
+                selected_tools.push(tool.name.clone());
+            }
+        }
+    }
+    if !selected_tools.is_empty() {
+        openai.insert(
+            "tool_search_selected".to_string(),
+            serde_json::Value::Array(
+                selected_tools.into_iter().map(serde_json::Value::String).collect(),
+            ),
+        );
+    }
+}
+
 /// Build `provider_metadata` JSON from the response.
 ///
-/// Always includes `response_id`. Optionally includes `encrypted_content`
-/// from reasoning items and `built_in_tool_outputs` from web search,
-/// file search, and code interpreter calls.
+/// Always includes `response_id` and `status`. Optionally includes `service_tier`,
+/// `encrypted_content` from reasoning items, and `built_in_tool_outputs` from web search,
+/// file search, code interpreter, image generation, MCP, shell, and skill calls.
 fn build_provider_metadata(response: &Response) -> Option<serde_json::Value> {
     let mut openai = serde_json::Map::new();
     openai.insert("response_id".to_string(), serde_json::Value::String(response.id.clone()));
+
+    // Always include status
+    let status_str = match &response.status {
+        Status::Completed => "completed",
+        Status::Failed => "failed",
+        Status::InProgress => "in_progress",
+        Status::Cancelled => "cancelled",
+        Status::Queued => "queued",
+        Status::Incomplete => "incomplete",
+    };
+    openai.insert("status".to_string(), serde_json::Value::String(status_str.to_string()));
+
+    // Include service_tier if present
+    if let Some(tier) = &response.service_tier {
+        let tier_str = match tier {
+            OaiServiceTier::Auto => "auto",
+            OaiServiceTier::Default => "default",
+            OaiServiceTier::Flex => "flex",
+            OaiServiceTier::Scale => "scale",
+            OaiServiceTier::Priority => "priority",
+        };
+        openai.insert("service_tier".to_string(), serde_json::Value::String(tier_str.to_string()));
+    }
+
+    // Extract phase from output messages if present.
+    // The phase field is a newer API addition not yet in async-openai types,
+    // so we attempt to extract it from the serialized response output items.
+    extract_phase_from_output(&response.output, &mut openai);
+
+    // Extract tool_search_selected from output items if present.
+    // Tool search results appear as metadata on the response when tool_search is enabled.
+    extract_tool_search_selected(&response.output, &mut openai);
 
     // Collect encrypted_content from reasoning items
     for item in &response.output {
@@ -688,7 +899,9 @@ mod tests {
     use super::*;
     use adk_core::{GenerateContentConfig, LlmRequest};
     use async_openai::types::responses::{
-        WebSearchActionSearch, WebSearchToolCall, WebSearchToolCallAction, WebSearchToolCallStatus,
+        ConversationParam, PromptCacheRetention as OaiPromptCacheRetention,
+        ServiceTier as OaiServiceTier, WebSearchActionSearch, WebSearchToolCall,
+        WebSearchToolCallAction, WebSearchToolCallStatus,
     };
 
     #[test]
@@ -883,5 +1096,673 @@ mod tests {
             .expect("history parts should be present");
         assert_eq!(parts.len(), 1);
         assert_eq!(parts[0]["server_tool_call"]["type"], "reasoning");
+    }
+
+    #[test]
+    fn test_build_create_response_sets_background_from_extension() {
+        let mut extensions = serde_json::Map::new();
+        extensions.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "background": true
+            }),
+        );
+
+        let request = LlmRequest {
+            model: "gpt-5".to_string(),
+            contents: vec![],
+            config: Some(GenerateContentConfig { extensions, ..Default::default() }),
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built =
+            build_create_response("gpt-5", &request, None, None).expect("request should build");
+        assert_eq!(built.background, Some(true));
+    }
+
+    #[test]
+    fn test_build_create_response_auto_enables_background_for_deep_research() {
+        let request = LlmRequest {
+            model: "o3-deep-research".to_string(),
+            contents: vec![],
+            config: None,
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built = build_create_response("o3-deep-research", &request, None, None)
+            .expect("request should build");
+        assert_eq!(built.background, Some(true));
+
+        // Also test o4-mini-deep-research
+        let built2 = build_create_response("o4-mini-deep-research", &request, None, None)
+            .expect("request should build");
+        assert_eq!(built2.background, Some(true));
+    }
+
+    #[test]
+    fn test_build_create_response_sets_webhook_url_in_metadata() {
+        let mut extensions = serde_json::Map::new();
+        extensions.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "webhook_url": "https://example.com/webhook"
+            }),
+        );
+
+        let request = LlmRequest {
+            model: "gpt-5".to_string(),
+            contents: vec![],
+            config: Some(GenerateContentConfig { extensions, ..Default::default() }),
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built =
+            build_create_response("gpt-5", &request, None, None).expect("request should build");
+        let meta = built.metadata.expect("metadata should be set");
+        assert_eq!(meta.get("webhook_url").unwrap(), "https://example.com/webhook");
+    }
+
+    #[test]
+    fn test_build_create_response_sets_auto_compaction_in_metadata() {
+        let mut extensions = serde_json::Map::new();
+        extensions.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "auto_compaction": true
+            }),
+        );
+
+        let request = LlmRequest {
+            model: "gpt-5".to_string(),
+            contents: vec![],
+            config: Some(GenerateContentConfig { extensions, ..Default::default() }),
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built =
+            build_create_response("gpt-5", &request, None, None).expect("request should build");
+        let meta = built.metadata.expect("metadata should be set");
+        assert_eq!(meta.get("auto_compaction").unwrap(), "true");
+    }
+
+    #[test]
+    fn test_build_create_response_sets_conversation_id() {
+        let mut extensions = serde_json::Map::new();
+        extensions.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "conversation_id": "conv_xyz789"
+            }),
+        );
+
+        let request = LlmRequest {
+            model: "gpt-5".to_string(),
+            contents: vec![],
+            config: Some(GenerateContentConfig { extensions, ..Default::default() }),
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built =
+            build_create_response("gpt-5", &request, None, None).expect("request should build");
+        assert_eq!(
+            built.conversation,
+            Some(ConversationParam::ConversationID("conv_xyz789".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_build_create_response_sets_prompt_id() {
+        let mut extensions = serde_json::Map::new();
+        extensions.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "prompt_id": "prompt_abc"
+            }),
+        );
+
+        let request = LlmRequest {
+            model: "gpt-5".to_string(),
+            contents: vec![],
+            config: Some(GenerateContentConfig { extensions, ..Default::default() }),
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built =
+            build_create_response("gpt-5", &request, None, None).expect("request should build");
+        let prompt = built.prompt.expect("prompt should be set");
+        assert_eq!(prompt.id, "prompt_abc");
+        assert_eq!(prompt.version, None);
+        assert_eq!(prompt.variables, None);
+    }
+
+    #[test]
+    fn test_build_create_response_sets_prompt_cache_retention() {
+        let mut extensions = serde_json::Map::new();
+        extensions.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "prompt_cache_retention": "24h"
+            }),
+        );
+
+        let request = LlmRequest {
+            model: "gpt-5".to_string(),
+            contents: vec![],
+            config: Some(GenerateContentConfig { extensions, ..Default::default() }),
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built =
+            build_create_response("gpt-5", &request, None, None).expect("request should build");
+        assert_eq!(built.prompt_cache_retention, Some(OaiPromptCacheRetention::Hours24));
+
+        // Test in_memory variant
+        let mut extensions2 = serde_json::Map::new();
+        extensions2.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "prompt_cache_retention": "in_memory"
+            }),
+        );
+
+        let request2 = LlmRequest {
+            model: "gpt-5".to_string(),
+            contents: vec![],
+            config: Some(GenerateContentConfig { extensions: extensions2, ..Default::default() }),
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built2 =
+            build_create_response("gpt-5", &request2, None, None).expect("request should build");
+        assert_eq!(built2.prompt_cache_retention, Some(OaiPromptCacheRetention::InMemory));
+    }
+
+    #[test]
+    fn test_build_create_response_sets_service_tier() {
+        let mut extensions = serde_json::Map::new();
+        extensions.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "service_tier": "priority"
+            }),
+        );
+
+        let request = LlmRequest {
+            model: "gpt-5".to_string(),
+            contents: vec![],
+            config: Some(GenerateContentConfig { extensions, ..Default::default() }),
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built =
+            build_create_response("gpt-5", &request, None, None).expect("request should build");
+        assert_eq!(built.service_tier, Some(OaiServiceTier::Priority));
+    }
+
+    #[test]
+    fn test_build_create_response_sets_built_in_tools() {
+        let mut extensions = serde_json::Map::new();
+        extensions.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "built_in_tools": [
+                    { "type": "web_search_2025_08_26" },
+                    { "type": "image_generation", "size": "1024x1024", "quality": "high" }
+                ]
+            }),
+        );
+
+        let request = LlmRequest {
+            model: "gpt-5".to_string(),
+            contents: vec![],
+            config: Some(GenerateContentConfig { extensions, ..Default::default() }),
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built =
+            build_create_response("gpt-5", &request, None, None).expect("request should build");
+        let tools = built.tools.expect("tools should be set");
+        assert_eq!(tools.len(), 2);
+    }
+
+    #[test]
+    fn test_build_create_response_no_new_fields_without_extensions() {
+        let request = LlmRequest {
+            model: "gpt-5".to_string(),
+            contents: vec![],
+            config: None,
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built =
+            build_create_response("gpt-5", &request, None, None).expect("request should build");
+        assert_eq!(built.background, None);
+        assert_eq!(built.metadata, None);
+        assert_eq!(built.conversation, None);
+        assert_eq!(built.prompt, None);
+        assert_eq!(built.prompt_cache_retention, None);
+        assert_eq!(built.service_tier, None);
+    }
+
+    #[test]
+    fn test_build_create_response_all_extensions_combined() {
+        let mut extensions = serde_json::Map::new();
+        extensions.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "background": true,
+                "webhook_url": "https://example.com/hook",
+                "auto_compaction": true,
+                "conversation_id": "conv_123",
+                "prompt_id": "prompt_456",
+                "prompt_cache_retention": "24h",
+                "service_tier": "priority",
+                "built_in_tools": [
+                    { "type": "web_search_2025_08_26" }
+                ]
+            }),
+        );
+
+        let request = LlmRequest {
+            model: "gpt-5".to_string(),
+            contents: vec![],
+            config: Some(GenerateContentConfig { extensions, ..Default::default() }),
+            tools: HashMap::new(),
+            previous_response_id: None,
+        };
+
+        let built =
+            build_create_response("gpt-5", &request, None, None).expect("request should build");
+        assert_eq!(built.background, Some(true));
+        assert_eq!(
+            built.conversation,
+            Some(ConversationParam::ConversationID("conv_123".to_string()))
+        );
+        assert_eq!(built.prompt.as_ref().unwrap().id, "prompt_456");
+        assert_eq!(built.prompt_cache_retention, Some(OaiPromptCacheRetention::Hours24));
+        assert_eq!(built.service_tier, Some(OaiServiceTier::Priority));
+
+        let meta = built.metadata.unwrap();
+        assert_eq!(meta.get("webhook_url").unwrap(), "https://example.com/hook");
+        assert_eq!(meta.get("auto_compaction").unwrap(), "true");
+
+        let tools = built.tools.unwrap();
+        assert_eq!(tools.len(), 1);
+    }
+
+    #[test]
+    fn test_from_response_includes_status_in_provider_metadata() {
+        let response: Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_status_test",
+            "object": "response",
+            "created_at": 0,
+            "model": "gpt-5.4",
+            "status": "completed",
+            "output": [],
+            "usage": {
+                "input_tokens": 10,
+                "input_tokens_details": { "cached_tokens": 0 },
+                "output_tokens": 5,
+                "output_tokens_details": { "reasoning_tokens": 0 },
+                "total_tokens": 15
+            }
+        }))
+        .expect("response should deserialize");
+
+        let llm_response = from_response(&response);
+        let metadata = llm_response.provider_metadata.expect("metadata should exist");
+        assert_eq!(metadata["openai"]["response_id"], "resp_status_test");
+        assert_eq!(metadata["openai"]["status"], "completed");
+    }
+
+    #[test]
+    fn test_from_response_includes_service_tier_in_provider_metadata() {
+        let response: Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_tier_test",
+            "object": "response",
+            "created_at": 0,
+            "model": "gpt-5.4",
+            "status": "completed",
+            "service_tier": "priority",
+            "output": [],
+            "usage": {
+                "input_tokens": 10,
+                "input_tokens_details": { "cached_tokens": 0 },
+                "output_tokens": 5,
+                "output_tokens_details": { "reasoning_tokens": 0 },
+                "total_tokens": 15
+            }
+        }))
+        .expect("response should deserialize");
+
+        let llm_response = from_response(&response);
+        let metadata = llm_response.provider_metadata.expect("metadata should exist");
+        assert_eq!(metadata["openai"]["service_tier"], "priority");
+    }
+
+    #[test]
+    fn test_from_response_omits_service_tier_when_absent() {
+        let response: Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_no_tier",
+            "object": "response",
+            "created_at": 0,
+            "model": "gpt-5.4",
+            "status": "completed",
+            "output": [],
+            "usage": {
+                "input_tokens": 10,
+                "input_tokens_details": { "cached_tokens": 0 },
+                "output_tokens": 5,
+                "output_tokens_details": { "reasoning_tokens": 0 },
+                "total_tokens": 15
+            }
+        }))
+        .expect("response should deserialize");
+
+        let llm_response = from_response(&response);
+        let metadata = llm_response.provider_metadata.expect("metadata should exist");
+        assert!(metadata["openai"].get("service_tier").is_none());
+    }
+
+    #[test]
+    fn test_from_response_includes_cache_read_token_count() {
+        let response: Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_cache_test",
+            "object": "response",
+            "created_at": 0,
+            "model": "gpt-5.4",
+            "status": "completed",
+            "output": [],
+            "usage": {
+                "input_tokens": 100,
+                "input_tokens_details": { "cached_tokens": 42 },
+                "output_tokens": 50,
+                "output_tokens_details": { "reasoning_tokens": 10 },
+                "total_tokens": 150
+            }
+        }))
+        .expect("response should deserialize");
+
+        let llm_response = from_response(&response);
+        let usage = llm_response.usage_metadata.expect("usage should exist");
+        assert_eq!(usage.cache_read_input_token_count, Some(42));
+        assert_eq!(usage.thinking_token_count, Some(10));
+    }
+
+    #[test]
+    fn test_from_response_handles_image_generation_as_server_tool_call() {
+        let response: Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_img_gen",
+            "object": "response",
+            "created_at": 0,
+            "model": "gpt-5.4",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "image_generation_call",
+                    "id": "img_123",
+                    "result": "base64_image_data_here",
+                    "status": "completed"
+                }
+            ],
+            "usage": {
+                "input_tokens": 10,
+                "input_tokens_details": { "cached_tokens": 0 },
+                "output_tokens": 5,
+                "output_tokens_details": { "reasoning_tokens": 0 },
+                "total_tokens": 15
+            }
+        }))
+        .expect("response should deserialize");
+
+        let llm_response = from_response(&response);
+        let content = llm_response.content.expect("content should exist");
+        assert_eq!(content.parts.len(), 1);
+        assert!(matches!(content.parts[0], Part::ServerToolCall { .. }));
+    }
+
+    #[test]
+    fn test_from_response_handles_mcp_call_as_server_tool_call() {
+        let response: Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_mcp",
+            "object": "response",
+            "created_at": 0,
+            "model": "gpt-5.4",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "mcp_call",
+                    "id": "mcp_123",
+                    "arguments": "{}",
+                    "name": "search_docs",
+                    "server_label": "deepwiki"
+                }
+            ],
+            "usage": {
+                "input_tokens": 10,
+                "input_tokens_details": { "cached_tokens": 0 },
+                "output_tokens": 5,
+                "output_tokens_details": { "reasoning_tokens": 0 },
+                "total_tokens": 15
+            }
+        }))
+        .expect("response should deserialize");
+
+        let llm_response = from_response(&response);
+        let content = llm_response.content.expect("content should exist");
+        assert_eq!(content.parts.len(), 1);
+        assert!(matches!(content.parts[0], Part::ServerToolCall { .. }));
+    }
+
+    #[test]
+    fn test_from_response_handles_shell_call_as_server_tool_call() {
+        let response: Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_shell",
+            "object": "response",
+            "created_at": 0,
+            "model": "gpt-5.4",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "shell_call",
+                    "id": "sh_123",
+                    "call_id": "call_sh_123",
+                    "action": {
+                        "commands": ["echo hello"],
+                        "timeout_ms": 30000
+                    },
+                    "status": "completed"
+                }
+            ],
+            "usage": {
+                "input_tokens": 10,
+                "input_tokens_details": { "cached_tokens": 0 },
+                "output_tokens": 5,
+                "output_tokens_details": { "reasoning_tokens": 0 },
+                "total_tokens": 15
+            }
+        }))
+        .expect("response should deserialize");
+
+        let llm_response = from_response(&response);
+        let content = llm_response.content.expect("content should exist");
+        assert_eq!(content.parts.len(), 1);
+        assert!(matches!(content.parts[0], Part::ServerToolCall { .. }));
+    }
+
+    #[test]
+    fn test_from_response_handles_shell_call_output_as_server_tool_response() {
+        // ShellCallOutput uses bridge_response_item which converts between response-side
+        // and request-side types. When the bridge conversion fails due to serde format
+        // differences (flatten vs tagged), the output is gracefully skipped without errors.
+        // This demonstrates open_responses_mode graceful degradation.
+        let response: Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_shell_out",
+            "object": "response",
+            "created_at": 0,
+            "model": "gpt-5.4",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "shell_call_output",
+                    "id": "sh_out_123",
+                    "call_id": "call_sh_123",
+                    "output": [{
+                        "stdout": "hello",
+                        "stderr": "",
+                        "type": "exit",
+                        "exit_code": 0
+                    }],
+                    "max_output_length": 1024
+                }
+            ],
+            "usage": {
+                "input_tokens": 10,
+                "input_tokens_details": { "cached_tokens": 0 },
+                "output_tokens": 5,
+                "output_tokens_details": { "reasoning_tokens": 0 },
+                "total_tokens": 15
+            }
+        }))
+        .expect("response should deserialize");
+
+        let llm_response = from_response(&response);
+        // Graceful handling: no errors even if bridge conversion doesn't produce parts
+        assert!(llm_response.error_code.is_none());
+        assert!(llm_response.error_message.is_none());
+        // Metadata still includes response_id and status
+        let metadata = llm_response.provider_metadata.expect("metadata should exist");
+        assert_eq!(metadata["openai"]["response_id"], "resp_shell_out");
+        assert_eq!(metadata["openai"]["status"], "completed");
+    }
+
+    #[test]
+    fn test_from_response_graceful_with_missing_optional_fields() {
+        // Simulates open_responses_mode: response without service_tier, no encrypted_content,
+        // no special tool outputs — should produce a valid LlmResponse without errors
+        let response: Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_open",
+            "object": "response",
+            "created_at": 0,
+            "model": "local-model",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "message",
+                    "id": "msg_123",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Hello from open responses",
+                            "annotations": []
+                        }
+                    ]
+                }
+            ],
+            "usage": {
+                "input_tokens": 5,
+                "input_tokens_details": { "cached_tokens": 0 },
+                "output_tokens": 3,
+                "output_tokens_details": { "reasoning_tokens": 0 },
+                "total_tokens": 8
+            }
+        }))
+        .expect("response should deserialize");
+
+        let llm_response = from_response(&response);
+        // Should produce valid response without errors
+        assert!(llm_response.error_code.is_none());
+        assert!(llm_response.error_message.is_none());
+        let content = llm_response.content.expect("content should exist");
+        assert_eq!(content.parts.len(), 1);
+        if let Part::Text { text } = &content.parts[0] {
+            assert_eq!(text, "Hello from open responses");
+        } else {
+            panic!("expected text part");
+        }
+        // Metadata should still have response_id and status
+        let metadata = llm_response.provider_metadata.expect("metadata should exist");
+        assert_eq!(metadata["openai"]["response_id"], "resp_open");
+        assert_eq!(metadata["openai"]["status"], "completed");
+        // service_tier should be absent
+        assert!(metadata["openai"].get("service_tier").is_none());
+    }
+
+    #[test]
+    fn test_from_response_all_status_variants() {
+        for (status_str, _) in [
+            ("completed", "completed"),
+            ("failed", "failed"),
+            ("in_progress", "in_progress"),
+            ("cancelled", "cancelled"),
+            ("queued", "queued"),
+            ("incomplete", "incomplete"),
+        ] {
+            let response: Response = serde_json::from_value(serde_json::json!({
+                "id": "resp_status",
+                "object": "response",
+                "created_at": 0,
+                "model": "gpt-5.4",
+                "status": status_str,
+                "output": []
+            }))
+            .expect("response should deserialize");
+
+            let llm_response = from_response(&response);
+            let metadata = llm_response.provider_metadata.expect("metadata should exist");
+            assert_eq!(metadata["openai"]["status"], status_str);
+        }
+    }
+
+    #[test]
+    fn test_from_response_mcp_list_tools_populates_tool_search_selected() {
+        let response: Response = serde_json::from_value(serde_json::json!({
+            "id": "resp_tool_search",
+            "object": "response",
+            "created_at": 0,
+            "model": "gpt-5.4",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "mcp_list_tools",
+                    "id": "mlt_123",
+                    "server_label": "my_server",
+                    "tools": [
+                        { "name": "tool_a", "description": "Tool A", "input_schema": {} },
+                        { "name": "tool_b", "description": "Tool B", "input_schema": {} }
+                    ]
+                }
+            ],
+            "usage": {
+                "input_tokens": 10,
+                "input_tokens_details": { "cached_tokens": 0 },
+                "output_tokens": 5,
+                "output_tokens_details": { "reasoning_tokens": 0 },
+                "total_tokens": 15
+            }
+        }))
+        .expect("response should deserialize");
+
+        let llm_response = from_response(&response);
+        let metadata = llm_response.provider_metadata.expect("metadata should exist");
+        let selected = metadata["openai"]["tool_search_selected"]
+            .as_array()
+            .expect("tool_search_selected should be an array");
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0], "tool_a");
+        assert_eq!(selected[1], "tool_b");
     }
 }

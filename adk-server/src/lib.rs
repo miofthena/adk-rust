@@ -73,6 +73,9 @@ pub mod yaml_agent;
 #[cfg(feature = "agent-registry")]
 pub mod registry;
 
+#[cfg(feature = "openai-webhooks")]
+pub mod webhooks;
+
 pub use a2a::{
     A2aClient, Executor, ExecutorConfig, RemoteA2aAgent, RemoteA2aAgentBuilder, RemoteA2aConfig,
     build_agent_card, build_agent_skills,

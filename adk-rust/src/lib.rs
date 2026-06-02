@@ -190,9 +190,9 @@
 //!
 //! Ready-to-use tools included with ADK:
 //!
-//! - [`GoogleSearchTool`](tool::GoogleSearchTool) - Web search via Google
-//! - [`ExitLoopTool`](tool::ExitLoopTool) - Control loop termination
-//! - [`LoadArtifactsTool`](tool::LoadArtifactsTool) - Access stored artifacts
+//! - `GoogleSearchTool` - Web search via Google
+//! - `ExitLoopTool` - Control loop termination
+//! - `LoadArtifactsTool` - Access stored artifacts
 //!
 //! ### MCP Tools - External Integrations
 //!
@@ -519,9 +519,9 @@ pub mod model {
 /// Tool system and built-in tools.
 ///
 /// Give agents capabilities beyond conversation:
-/// - [`FunctionTool`](tool::FunctionTool) - Wrap async functions as tools
-/// - [`GoogleSearchTool`](tool::GoogleSearchTool) - Web search
-/// - [`ExitLoopTool`](tool::ExitLoopTool) - Control loop agents
+/// - `FunctionTool` - Wrap async functions as tools
+/// - `GoogleSearchTool` - Web search
+/// - `ExitLoopTool` - Control loop agents
 /// - `McpToolset` - MCP server integration with the `mcp` feature
 ///
 /// Available with feature: `tools`
@@ -680,7 +680,7 @@ pub mod sandbox {
 /// Lightweight console launcher — always available with the `runner` feature.
 ///
 /// When the `cli` feature is enabled, this is replaced by the full-featured
-/// [`adk_cli::Launcher`] with `--serve` mode, readline history, and thinking
+/// `adk_cli::Launcher` with `--serve` mode, readline history, and thinking
 /// block rendering.
 #[cfg(all(feature = "runner", not(feature = "cli")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "runner")))]

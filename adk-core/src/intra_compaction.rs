@@ -1,7 +1,7 @@
 //! Intra-invocation context compaction configuration and token estimation.
 //!
 //! This module provides [`IntraCompactionConfig`] for configuring mid-invocation
-//! compaction and [`estimate_tokens`] for heuristic token counting. Unlike the
+//! compaction and [`estimate_tokens`](crate::intra_compaction::estimate_tokens) for heuristic token counting. Unlike the
 //! existing [`EventsCompactionConfig`](crate::EventsCompactionConfig) which handles
 //! post-invocation compaction based on invocation count, intra-invocation compaction
 //! monitors token usage *during* an invocation and triggers summarization before

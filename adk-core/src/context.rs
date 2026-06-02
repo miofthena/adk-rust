@@ -587,8 +587,8 @@ pub trait Memory: Send + Sync {
 
 /// Trait for retrieving secrets at runtime.
 ///
-/// This is the core-level abstraction used by [`ToolContext::get_secret`] and
-/// [`InvocationContext::get_secret`]. Concrete implementations (e.g., AWS
+/// This is the core-level abstraction used by `ToolContext::get_secret` and
+/// `InvocationContext::get_secret`. Concrete implementations (e.g., AWS
 /// Secrets Manager, Azure Key Vault, GCP Secret Manager) live in `adk-auth`
 /// behind feature flags and implement this trait via the `SecretProvider`
 /// adapter.

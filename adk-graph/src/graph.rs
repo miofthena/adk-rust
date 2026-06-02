@@ -237,7 +237,7 @@ impl CompiledGraph {
     /// Get the effective timeout policy for a node.
     ///
     /// Returns the per-node policy if one was configured via
-    /// [`GraphAgentBuilder::node_timeout`], otherwise falls back to the
+    /// `GraphAgentBuilder::node_timeout`, otherwise falls back to the
     /// default timeout policy. Returns `None` if neither is set.
     pub fn timeout_policy_for(&self, node_name: &str) -> Option<&crate::timeout::TimeoutPolicy> {
         self.timeout_policies.get(node_name).or(self.default_timeout.as_ref())

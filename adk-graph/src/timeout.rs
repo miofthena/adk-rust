@@ -7,7 +7,7 @@
 //!
 //! The [`TimeoutPolicy`] struct configures timeout behavior for a node:
 //! - `run_timeout`: Hard wall-clock limit from when the node starts executing.
-//! - `idle_timeout`: Resets each time [`report_progress()`] is called on the progress handle.
+//! - `idle_timeout`: Resets each time `report_progress()` is called on the progress handle.
 //! - `on_timeout`: What to do when a timeout fires ([`OnTimeout`]).
 //!
 //! # Example

@@ -22,7 +22,7 @@
 //!
 //! - Must not be empty.
 //! - Must not contain null bytes (`\0`).
-//! - Must not exceed [`MAX_ID_LEN`] bytes (512).
+//! - Must not exceed [`MAX_ID_LEN`](crate::identity::MAX_ID_LEN) bytes (512).
 //! - Characters like `:`, `|`, `/`, and `@` are allowed — validation does not
 //!   couple to any backend's internal key encoding.
 //!

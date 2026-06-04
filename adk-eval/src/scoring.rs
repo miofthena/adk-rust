@@ -8,6 +8,72 @@ use crate::criteria::{ResponseMatchConfig, SimilarityAlgorithm, ToolTrajectoryCo
 use crate::schema::ToolUse;
 use std::collections::HashSet;
 
+/// Unicode-aware text tokenizer for scoring.
+///
+/// For whitespace-delimited languages (English, etc.), splits on whitespace.
+/// For CJK text (Chinese, Japanese, Korean) which has no word-separating
+/// whitespace, emits each character as an individual token.
+/// This enables meaningful Jaccard, ROUGE, and n-gram scoring across all languages.
+fn unicode_tokenize(text: &str) -> impl Iterator<Item = &str> {
+    UnicodeTokenizer { text, pos: 0 }
+}
+
+struct UnicodeTokenizer<'a> {
+    text: &'a str,
+    pos: usize,
+}
+
+impl<'a> Iterator for UnicodeTokenizer<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Skip whitespace
+        while self.pos < self.text.len() {
+            if self.text[self.pos..].starts_with(char::is_whitespace) {
+                self.pos += self.text[self.pos..].chars().next().unwrap().len_utf8();
+            } else {
+                break;
+            }
+        }
+
+        if self.pos >= self.text.len() {
+            return None;
+        }
+
+        let start = self.pos;
+        let c = self.text[start..].chars().next().unwrap();
+
+        // CJK character: emit as a single-character token
+        if is_cjk_char(c) {
+            self.pos += c.len_utf8();
+            return Some(&self.text[start..self.pos]);
+        }
+
+        // Non-CJK: accumulate until whitespace or CJK
+        while self.pos < self.text.len() {
+            let ch = self.text[self.pos..].chars().next().unwrap();
+            if ch.is_whitespace() || is_cjk_char(ch) {
+                break;
+            }
+            self.pos += ch.len_utf8();
+        }
+
+        Some(&self.text[start..self.pos])
+    }
+}
+
+/// Returns true if the character is in a CJK script block.
+fn is_cjk_char(c: char) -> bool {
+    matches!(c,
+        '\u{4e00}'..='\u{9fff}'   // CJK Unified Ideographs
+        | '\u{3400}'..='\u{4dbf}' // CJK Extension A
+        | '\u{f900}'..='\u{faff}' // CJK Compatibility
+        | '\u{3040}'..='\u{309f}' // Hiragana
+        | '\u{30a0}'..='\u{30ff}' // Katakana
+        | '\u{ac00}'..='\u{d7af}' // Hangul Syllables
+    )
+}
+
 /// Scorer for tool trajectory matching
 pub struct ToolTrajectoryScorer {
     config: ToolTrajectoryConfig,
@@ -209,7 +275,7 @@ impl ResponseScorer {
     /// Levenshtein distance based similarity
     fn levenshtein_similarity(&self, a: &str, b: &str) -> f64 {
         let distance = self.levenshtein_distance(a, b);
-        let max_len = a.len().max(b.len());
+        let max_len = a.chars().count().max(b.chars().count());
         if max_len == 0 { 1.0 } else { 1.0 - (distance as f64 / max_len as f64) }
     }
 
@@ -248,8 +314,8 @@ impl ResponseScorer {
 
     /// Jaccard similarity (word overlap)
     fn jaccard_similarity(&self, a: &str, b: &str) -> f64 {
-        let a_words: HashSet<&str> = a.split_whitespace().collect();
-        let b_words: HashSet<&str> = b.split_whitespace().collect();
+        let a_words: HashSet<&str> = unicode_tokenize(a).collect();
+        let b_words: HashSet<&str> = unicode_tokenize(b).collect();
 
         if a_words.is_empty() && b_words.is_empty() {
             return 1.0;
@@ -275,8 +341,8 @@ impl ResponseScorer {
     }
 
     /// Get n-grams from text
-    fn get_ngrams<'a>(&self, text: &'a str, n: usize) -> HashSet<Vec<&'a str>> {
-        let words: Vec<&str> = text.split_whitespace().collect();
+    fn get_ngrams(&self, text: &str, n: usize) -> HashSet<Vec<String>> {
+        let words: Vec<String> = unicode_tokenize(text).map(|s| s.to_string()).collect();
         if words.len() < n {
             return HashSet::new();
         }
@@ -286,8 +352,8 @@ impl ResponseScorer {
 
     /// ROUGE-L score (longest common subsequence)
     fn rouge_l(&self, reference: &str, candidate: &str) -> f64 {
-        let ref_words: Vec<&str> = reference.split_whitespace().collect();
-        let cand_words: Vec<&str> = candidate.split_whitespace().collect();
+        let ref_words: Vec<&str> = unicode_tokenize(reference).collect();
+        let cand_words: Vec<&str> = unicode_tokenize(candidate).collect();
 
         if ref_words.is_empty() {
             return if cand_words.is_empty() { 1.0 } else { 0.0 };

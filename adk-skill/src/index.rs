@@ -168,6 +168,11 @@ fn normalize_id(value: &str) -> String {
             out.push(c.to_ascii_lowercase());
         } else if c == ' ' || c == '-' || c == '_' {
             out.push('-');
+        } else if c.is_alphanumeric() {
+            // Non-ASCII alphanumeric (CJK, Cyrillic, Arabic, etc.):
+            // preserve the character as-is so skill names in the user's
+            // native script remain meaningful.
+            out.push(c);
         }
     }
     if out.is_empty() { "skill".to_string() } else { out }
@@ -320,5 +325,29 @@ mod tests {
         assert_eq!(skill.name, "soul");
         assert!(skill.tags.iter().any(|t| t == "soul-md"));
         assert!(skill.body.contains("deterministic workflows"));
+    }
+
+    #[test]
+    fn normalize_id_preserves_chinese() {
+        let id = normalize_id("电脑操作");
+        assert_eq!(id, "电脑操作");
+    }
+
+    #[test]
+    fn normalize_id_preserves_cyrillic() {
+        let id = normalize_id("база-данных");
+        assert_eq!(id, "база-данных");
+    }
+
+    #[test]
+    fn normalize_id_falls_back_for_ascii_only() {
+        let id = normalize_id("my_skill");
+        assert_eq!(id, "my-skill");
+    }
+
+    #[test]
+    fn normalize_id_empty_falls_back_to_skill() {
+        let id = normalize_id("");
+        assert_eq!(id, "skill");
     }
 }

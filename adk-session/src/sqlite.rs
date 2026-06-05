@@ -801,6 +801,307 @@ impl SessionService for SqliteSessionService {
 
         Ok(())
     }
+
+    async fn rewind(&self, session_id: &str, target_event_id: &str) -> Result<Box<dyn Session>> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| adk_core::AdkError::session(format!("transaction failed: {e}")))?;
+
+        // Find the session
+        let session_row =
+            sqlx::query("SELECT app_name, user_id FROM sessions WHERE session_id = ?")
+                .bind(session_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| adk_core::AdkError::session(format!("query failed: {e}")))?
+                .ok_or_else(|| adk_core::AdkError::session("session not found"))?;
+
+        let app_name: String = session_row.get("app_name");
+        let user_id: String = session_row.get("user_id");
+
+        // Find the target event and its timestamp
+        let target_row = sqlx::query(
+            "SELECT timestamp FROM events WHERE id = ? AND app_name = ? AND user_id = ? AND session_id = ?",
+        )
+        .bind(target_event_id)
+        .bind(&app_name)
+        .bind(&user_id)
+        .bind(session_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| adk_core::AdkError::session(format!("query failed: {e}")))?
+        .ok_or_else(|| {
+            adk_core::AdkError::session(format!("target event not found: {target_event_id}"))
+        })?;
+
+        let target_timestamp: String = target_row.get("timestamp");
+
+        // Delete all events after the target event's timestamp
+        sqlx::query(
+            "DELETE FROM events WHERE app_name = ? AND user_id = ? AND session_id = ? AND timestamp > ?",
+        )
+        .bind(&app_name)
+        .bind(&user_id)
+        .bind(session_id)
+        .bind(&target_timestamp)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| adk_core::AdkError::session(format!("delete events failed: {e}")))?;
+
+        // Also delete events with the same timestamp but different (later) IDs,
+        // keeping only the target event itself. Events at the exact same timestamp
+        // that are not the target should be removed.
+        sqlx::query(
+            "DELETE FROM events WHERE app_name = ? AND user_id = ? AND session_id = ? AND timestamp = ? AND id != ?",
+        )
+        .bind(&app_name)
+        .bind(&user_id)
+        .bind(session_id)
+        .bind(&target_timestamp)
+        .bind(target_event_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| adk_core::AdkError::session(format!("delete events failed: {e}")))?;
+
+        // Rebuild state from remaining events
+        let remaining_events: Vec<Event> = sqlx::query(
+            "SELECT * FROM events WHERE app_name = ? AND user_id = ? AND session_id = ? ORDER BY timestamp",
+        )
+        .bind(&app_name)
+        .bind(&user_id)
+        .bind(session_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| adk_core::AdkError::session(format!("query failed: {e}")))?
+        .into_iter()
+        .filter_map(|row| {
+            let llm_response = serde_json::from_str(row.get("llm_response")).ok()?;
+            let actions = serde_json::from_str(row.get("actions")).ok()?;
+            let long_running_tool_ids = serde_json::from_str(row.get("long_running_tool_ids")).ok()?;
+            let timestamp: String = row.get("timestamp");
+            let timestamp = DateTime::parse_from_rfc3339(&timestamp).ok()?.with_timezone(&Utc);
+            Some(Event {
+                id: row.get("id"),
+                timestamp,
+                invocation_id: row.get("invocation_id"),
+                branch: row.get("branch"),
+                author: row.get("author"),
+                llm_request: None,
+                llm_response,
+                actions,
+                long_running_tool_ids,
+                provider_metadata: std::collections::HashMap::new(),
+            })
+        })
+        .collect();
+
+        // Rebuild session state from remaining events' state deltas
+        let mut rebuilt_session_state: HashMap<String, Value> = HashMap::new();
+        for event in &remaining_events {
+            let (_app_delta, _user_delta, session_delta) =
+                state_utils::extract_state_deltas(&event.actions.state_delta);
+            rebuilt_session_state.extend(session_delta);
+        }
+
+        // Get app and user state
+        let app_state: HashMap<String, Value> =
+            sqlx::query("SELECT state FROM app_states WHERE app_name = ?")
+                .bind(&app_name)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| adk_core::AdkError::session(format!("query failed: {e}")))?
+                .map(|row| {
+                    serde_json::from_str::<HashMap<String, Value>>(row.get("state"))
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+
+        let user_state: HashMap<String, Value> =
+            sqlx::query("SELECT state FROM user_states WHERE app_name = ? AND user_id = ?")
+                .bind(&app_name)
+                .bind(&user_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| adk_core::AdkError::session(format!("query failed: {e}")))?
+                .map(|row| {
+                    serde_json::from_str::<HashMap<String, Value>>(row.get("state"))
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+
+        // Merge state and update session
+        let merged_state =
+            state_utils::merge_states(&app_state, &user_state, &rebuilt_session_state);
+        let merged_state_json = serde_json::to_string(&merged_state)
+            .map_err(|e| adk_core::AdkError::session(format!("serialize failed: {e}")))?;
+
+        let now = Utc::now();
+        sqlx::query(
+            "UPDATE sessions SET state = ?, updated_at = ? WHERE app_name = ? AND user_id = ? AND session_id = ?",
+        )
+        .bind(&merged_state_json)
+        .bind(now.to_rfc3339())
+        .bind(&app_name)
+        .bind(&user_id)
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| adk_core::AdkError::session(format!("update failed: {e}")))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| adk_core::AdkError::session(format!("commit failed: {e}")))?;
+
+        Ok(Box::new(DatabaseSession {
+            app_name,
+            user_id,
+            session_id: session_id.to_string(),
+            state: merged_state,
+            events: remaining_events,
+            updated_at: now,
+        }))
+    }
+
+    async fn rewind_steps(&self, session_id: &str, steps: usize) -> Result<Box<dyn Session>> {
+        if steps == 0 {
+            // Look up session and return it unchanged
+            let session_row =
+                sqlx::query("SELECT app_name, user_id FROM sessions WHERE session_id = ?")
+                    .bind(session_id)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| adk_core::AdkError::session(format!("query failed: {e}")))?
+                    .ok_or_else(|| adk_core::AdkError::session("session not found"))?;
+
+            let app_name: String = session_row.get("app_name");
+            let user_id: String = session_row.get("user_id");
+
+            return self
+                .get(GetRequest {
+                    app_name,
+                    user_id,
+                    session_id: session_id.to_string(),
+                    num_recent_events: None,
+                    after: None,
+                })
+                .await;
+        }
+
+        // Look up session identity and count events
+        let session_row =
+            sqlx::query("SELECT app_name, user_id FROM sessions WHERE session_id = ?")
+                .bind(session_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| adk_core::AdkError::session(format!("query failed: {e}")))?
+                .ok_or_else(|| adk_core::AdkError::session("session not found"))?;
+
+        let app_name: String = session_row.get("app_name");
+        let user_id: String = session_row.get("user_id");
+
+        // Get events ordered by timestamp
+        let events: Vec<(String, String)> = sqlx::query(
+            "SELECT id, timestamp FROM events WHERE app_name = ? AND user_id = ? AND session_id = ? ORDER BY timestamp",
+        )
+        .bind(&app_name)
+        .bind(&user_id)
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| adk_core::AdkError::session(format!("query failed: {e}")))?
+        .into_iter()
+        .map(|row| {
+            let id: String = row.get("id");
+            let ts: String = row.get("timestamp");
+            (id, ts)
+        })
+        .collect();
+
+        if steps > events.len() {
+            return Err(adk_core::AdkError::session("rewind steps exceeds event count"));
+        }
+
+        let target_index = events.len() - steps;
+        if target_index == 0 {
+            // Rewind all events: delete all and reset state
+            let mut tx = self
+                .pool
+                .begin()
+                .await
+                .map_err(|e| adk_core::AdkError::session(format!("transaction failed: {e}")))?;
+
+            sqlx::query("DELETE FROM events WHERE app_name = ? AND user_id = ? AND session_id = ?")
+                .bind(&app_name)
+                .bind(&user_id)
+                .bind(session_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| adk_core::AdkError::session(format!("delete failed: {e}")))?;
+
+            // Get app and user state for merged output
+            let app_state: HashMap<String, Value> =
+                sqlx::query("SELECT state FROM app_states WHERE app_name = ?")
+                    .bind(&app_name)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(|e| adk_core::AdkError::session(format!("query failed: {e}")))?
+                    .map(|row| {
+                        serde_json::from_str::<HashMap<String, Value>>(row.get("state"))
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default();
+
+            let user_state_map: HashMap<String, Value> =
+                sqlx::query("SELECT state FROM user_states WHERE app_name = ? AND user_id = ?")
+                    .bind(&app_name)
+                    .bind(&user_id)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(|e| adk_core::AdkError::session(format!("query failed: {e}")))?
+                    .map(|row| {
+                        serde_json::from_str::<HashMap<String, Value>>(row.get("state"))
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default();
+
+            let merged_state =
+                state_utils::merge_states(&app_state, &user_state_map, &HashMap::new());
+            let merged_state_json = serde_json::to_string(&merged_state)
+                .map_err(|e| adk_core::AdkError::session(format!("serialize failed: {e}")))?;
+
+            let now = Utc::now();
+            sqlx::query(
+                "UPDATE sessions SET state = ?, updated_at = ? WHERE app_name = ? AND user_id = ? AND session_id = ?",
+            )
+            .bind(&merged_state_json)
+            .bind(now.to_rfc3339())
+            .bind(&app_name)
+            .bind(&user_id)
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| adk_core::AdkError::session(format!("update failed: {e}")))?;
+
+            tx.commit()
+                .await
+                .map_err(|e| adk_core::AdkError::session(format!("commit failed: {e}")))?;
+
+            return Ok(Box::new(DatabaseSession {
+                app_name,
+                user_id,
+                session_id: session_id.to_string(),
+                state: merged_state,
+                events: Vec::new(),
+                updated_at: now,
+            }));
+        }
+
+        // Delegate to rewind with the target event's ID
+        let target_event_id = &events[target_index - 1].0;
+        self.rewind(session_id, target_event_id).await
+    }
 }
 
 struct DatabaseSession {

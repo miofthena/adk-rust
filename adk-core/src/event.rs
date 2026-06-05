@@ -81,6 +81,11 @@ pub struct EventActions {
     /// Present when this event is a compaction summary replacing older events.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compaction: Option<EventCompaction>,
+    /// Target node names for dynamic route dispatch in graph workflows.
+    /// When non-empty, the graph executor routes to these nodes instead of
+    /// following static edges.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<Vec<String>>,
 }
 
 impl Event {

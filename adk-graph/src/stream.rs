@@ -60,6 +60,9 @@ pub enum StreamEvent {
 
     /// Error occurred
     Error { message: String, node: Option<String> },
+
+    /// Emitted when dynamic route dispatch occurs.
+    RouteDispatched { source: String, targets: Vec<String> },
 }
 
 impl StreamEvent {
@@ -121,5 +124,10 @@ impl StreamEvent {
     /// Create an error event
     pub fn error(message: &str, node: Option<&str>) -> Self {
         Self::Error { message: message.to_string(), node: node.map(|s| s.to_string()) }
+    }
+
+    /// Create a route dispatched event
+    pub fn route_dispatched(source: &str, targets: Vec<String>) -> Self {
+        Self::RouteDispatched { source: source.to_string(), targets }
     }
 }

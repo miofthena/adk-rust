@@ -66,6 +66,9 @@ pub struct TaskContext {
     /// Iteration counters for loop checkpoint keying.
     /// Maps task_name -> current iteration index.
     iteration_counters: HashMap<String, usize>,
+    /// Pending dynamic route targets set by `route_to()`.
+    /// Consumed by the executor to populate `EventActions.route`.
+    pending_route: Option<Vec<String>>,
 }
 
 impl TaskContext {
@@ -91,6 +94,7 @@ impl TaskContext {
             schema,
             schema_validator: None,
             iteration_counters: HashMap::new(),
+            pending_route: None,
         }
     }
 
@@ -319,6 +323,32 @@ impl TaskContext {
     /// Reset all iteration counters.
     pub fn reset_all_iterations(&mut self) {
         self.iteration_counters.clear();
+    }
+
+    // ─── Route Dispatch ──────────────────────────────────────────────────
+
+    /// Set dynamic route targets for this task's output.
+    ///
+    /// The execution framework will dispatch to these named tasks
+    /// instead of following the declared order. The pending route is
+    /// consumed by the executor after the task completes and used to
+    /// populate `EventActions.route`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// ctx.route_to(&["process_a", "process_b"]);
+    /// ```
+    pub fn route_to(&mut self, targets: &[&str]) {
+        self.pending_route = Some(targets.iter().map(|s| s.to_string()).collect());
+    }
+
+    /// Consume and return the pending route targets, if any.
+    ///
+    /// Used by the executor to retrieve the route set by `route_to()`
+    /// and clear the pending state.
+    pub fn take_pending_route(&mut self) -> Option<Vec<String>> {
+        self.pending_route.take()
     }
 
     // ─── Internal Methods (pub(crate)) ───────────────────────────────────

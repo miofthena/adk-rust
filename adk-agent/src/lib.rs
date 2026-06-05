@@ -69,6 +69,9 @@
 //!     .build()?;
 //! ```
 
+#[cfg(feature = "ambient")]
+pub mod ambient;
+
 pub mod compaction;
 mod custom_agent;
 pub mod guardrails;
@@ -83,9 +86,17 @@ pub use adk_core::OnToolErrorCallback;
 pub use compaction::LlmEventSummarizer;
 pub use custom_agent::{CustomAgent, CustomAgentBuilder};
 pub use guardrails::GuardrailSet;
-pub use llm_agent::{DEFAULT_MAX_ITERATIONS, DEFAULT_TOOL_TIMEOUT, LlmAgent, LlmAgentBuilder};
+pub use llm_agent::{
+    DEFAULT_MAX_ITERATIONS, DEFAULT_TOOL_TIMEOUT, LlmAgent, LlmAgentBuilder, extract_typed,
+};
 pub use tool_call_markup::{normalize_content, normalize_option_content};
 pub use workflow::{
     ConditionalAgent, DEFAULT_LOOP_MAX_ITERATIONS, LlmConditionalAgent, LlmConditionalAgentBuilder,
     LoopAgent, ParallelAgent, SequentialAgent,
+};
+
+#[cfg(feature = "ambient")]
+pub use ambient::{
+    AmbientAgent, AmbientAgentStatus, CronTrigger, EventSource, FileWatchTrigger, TriggerEvent,
+    WebhookTrigger,
 };

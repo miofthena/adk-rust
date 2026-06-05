@@ -1,6 +1,6 @@
 use crate::{
-    AppendEventRequest, CreateRequest, DeleteRequest, Event, Events, GetRequest, KEY_PREFIX_APP,
-    KEY_PREFIX_TEMP, KEY_PREFIX_USER, ListRequest, Session, SessionService, State,
+    AppendEventRequest, CreateRequest, DeleteRequest, Event, Events, GetRequest, KEY_PREFIX_TEMP,
+    ListRequest, Session, SessionService, State, state_utils,
 };
 use adk_core::Result;
 use adk_core::identity::{AdkIdentity, AppName, SessionId, UserId};
@@ -41,32 +41,11 @@ impl InMemorySessionService {
     }
 
     fn extract_state_deltas(delta: &HashMap<String, Value>) -> (StateMap, StateMap, StateMap) {
-        let mut app_delta = StateMap::new();
-        let mut user_delta = StateMap::new();
-        let mut session_delta = StateMap::new();
-
-        for (key, value) in delta {
-            if let Some(clean_key) = key.strip_prefix(KEY_PREFIX_APP) {
-                app_delta.insert(clean_key.to_string(), value.clone());
-            } else if let Some(clean_key) = key.strip_prefix(KEY_PREFIX_USER) {
-                user_delta.insert(clean_key.to_string(), value.clone());
-            } else if !key.starts_with(KEY_PREFIX_TEMP) {
-                session_delta.insert(key.clone(), value.clone());
-            }
-        }
-
-        (app_delta, user_delta, session_delta)
+        state_utils::extract_state_deltas(delta)
     }
 
     fn merge_states(app: &StateMap, user: &StateMap, session: &StateMap) -> StateMap {
-        let mut merged = session.clone();
-        for (k, v) in app {
-            merged.insert(format!("{KEY_PREFIX_APP}{k}"), v.clone());
-        }
-        for (k, v) in user {
-            merged.insert(format!("{KEY_PREFIX_USER}{k}"), v.clone());
-        }
-        merged
+        state_utils::merge_states(app, user, session)
     }
 
     /// Build an [`AdkIdentity`] from raw string fields, returning a session
@@ -80,6 +59,46 @@ impl InMemorySessionService {
             SessionId::try_from(session_id)
                 .map_err(|e| adk_core::AdkError::session(format!("invalid session_id: {e}")))?,
         ))
+    }
+
+    /// Rewind a session to before all events (remove all events and reset state).
+    async fn rewind_to_empty(&self, session_id: &str) -> Result<Box<dyn Session>> {
+        let mut sessions = self.sessions.write().unwrap();
+        let data = sessions
+            .values_mut()
+            .find(|d| d.identity.session_id.as_ref() == session_id)
+            .ok_or_else(|| adk_core::AdkError::session("session not found"))?;
+
+        data.events.clear();
+        data.state = HashMap::new();
+        data.updated_at = Utc::now();
+
+        let app_name = data.identity.app_name.as_ref().to_string();
+        let user_id = data.identity.user_id.as_ref().to_string();
+        let identity = data.identity.clone();
+        let updated_at = data.updated_at;
+        drop(sessions);
+
+        let app_state_lock = self.app_state.read().unwrap();
+        let app_state = app_state_lock.get(&app_name).cloned().unwrap_or_default();
+        drop(app_state_lock);
+
+        let user_state_lock = self.user_state.read().unwrap();
+        let user_state = user_state_lock
+            .get(&app_name)
+            .and_then(|m| m.get(&user_id))
+            .cloned()
+            .unwrap_or_default();
+        drop(user_state_lock);
+
+        let merged_state = state_utils::merge_states(&app_state, &user_state, &HashMap::new());
+
+        Ok(Box::new(InMemorySession {
+            identity,
+            state: merged_state,
+            events: Vec::new(),
+            updated_at,
+        }))
     }
 }
 
@@ -339,6 +358,130 @@ impl SessionService for InMemorySessionService {
         let mut sessions = self.sessions.write().unwrap();
         sessions.remove(identity);
         Ok(())
+    }
+
+    async fn rewind(&self, session_id: &str, target_event_id: &str) -> Result<Box<dyn Session>> {
+        let mut sessions = self.sessions.write().unwrap();
+
+        // Find the session by session_id
+        let data = sessions
+            .values_mut()
+            .find(|d| d.identity.session_id.as_ref() == session_id)
+            .ok_or_else(|| adk_core::AdkError::session("session not found"))?;
+
+        // Find the target event index
+        let target_index =
+            data.events.iter().position(|e| e.id == target_event_id).ok_or_else(|| {
+                adk_core::AdkError::session(format!("target event not found: {target_event_id}"))
+            })?;
+
+        // Truncate events after the target (keep 0..=target_index)
+        data.events.truncate(target_index + 1);
+
+        // Rebuild session state from remaining events' state deltas
+        let mut rebuilt_session_state: HashMap<String, Value> = HashMap::new();
+        for event in &data.events {
+            let (_app_delta, _user_delta, session_delta) =
+                state_utils::extract_state_deltas(&event.actions.state_delta);
+            rebuilt_session_state.extend(session_delta);
+        }
+
+        // Get app and user state (these are not rewound — they are separate)
+        let app_name = data.identity.app_name.as_ref().to_string();
+        let user_id = data.identity.user_id.as_ref().to_string();
+
+        // Update the stored session state with rebuilt session-level state
+        data.state = rebuilt_session_state.clone();
+        data.updated_at = data.events.last().map(|e| e.timestamp).unwrap_or(Utc::now());
+
+        let identity = data.identity.clone();
+        let events = data.events.clone();
+        let updated_at = data.updated_at;
+        drop(sessions);
+
+        // Merge with app and user state for the returned session
+        let app_state_lock = self.app_state.read().unwrap();
+        let app_state = app_state_lock.get(&app_name).cloned().unwrap_or_default();
+        drop(app_state_lock);
+
+        let user_state_lock = self.user_state.read().unwrap();
+        let user_state = user_state_lock
+            .get(&app_name)
+            .and_then(|m| m.get(&user_id))
+            .cloned()
+            .unwrap_or_default();
+        drop(user_state_lock);
+
+        let merged_state =
+            state_utils::merge_states(&app_state, &user_state, &rebuilt_session_state);
+
+        Ok(Box::new(InMemorySession { identity, state: merged_state, events, updated_at }))
+    }
+
+    async fn rewind_steps(&self, session_id: &str, steps: usize) -> Result<Box<dyn Session>> {
+        if steps == 0 {
+            // Return the session unchanged
+            let sessions = self.sessions.read().unwrap();
+            let data = sessions
+                .values()
+                .find(|d| d.identity.session_id.as_ref() == session_id)
+                .ok_or_else(|| adk_core::AdkError::session("session not found"))?;
+
+            let app_name = data.identity.app_name.as_ref().to_string();
+            let user_id = data.identity.user_id.as_ref().to_string();
+            let identity = data.identity.clone();
+            let events = data.events.clone();
+            let session_state = data.state.clone();
+            let updated_at = data.updated_at;
+            drop(sessions);
+
+            let app_state_lock = self.app_state.read().unwrap();
+            let app_state = app_state_lock.get(&app_name).cloned().unwrap_or_default();
+            drop(app_state_lock);
+
+            let user_state_lock = self.user_state.read().unwrap();
+            let user_state = user_state_lock
+                .get(&app_name)
+                .and_then(|m| m.get(&user_id))
+                .cloned()
+                .unwrap_or_default();
+            drop(user_state_lock);
+
+            let merged_state = state_utils::merge_states(&app_state, &user_state, &session_state);
+
+            return Ok(Box::new(InMemorySession {
+                identity,
+                state: merged_state,
+                events,
+                updated_at,
+            }));
+        }
+
+        // Read the event count and determine target
+        let rewind_target = {
+            let sessions = self.sessions.read().unwrap();
+            let data = sessions
+                .values()
+                .find(|d| d.identity.session_id.as_ref() == session_id)
+                .ok_or_else(|| adk_core::AdkError::session("session not found"))?;
+
+            if steps > data.events.len() {
+                return Err(adk_core::AdkError::session("rewind steps exceeds event count"));
+            }
+
+            let target_index = data.events.len() - steps;
+            if target_index == 0 {
+                // Rewinding all events
+                None
+            } else {
+                Some(data.events[target_index - 1].id.clone())
+            }
+        };
+
+        match rewind_target {
+            Some(target_event_id) => self.rewind(session_id, &target_event_id).await,
+            None => self.rewind_to_empty(session_id).await,
+        }
     }
 }
 

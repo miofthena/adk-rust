@@ -289,6 +289,34 @@ pub trait SessionService: Send + Sync {
         Err(adk_core::AdkError::session("delete_all_sessions not implemented"))
     }
 
+    /// Rewind a session to the specified event, removing all subsequent events
+    /// and rebuilding state from remaining events' state deltas.
+    ///
+    /// After rewinding, the session will contain only events up to and including
+    /// the target event, and the session state will reflect the cumulative
+    /// application of those events' state deltas.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend does not support rewind, the session is
+    /// not found, or the target event ID does not exist in the session.
+    async fn rewind(&self, _session_id: &str, _target_event_id: &str) -> Result<Box<dyn Session>> {
+        Err(adk_core::AdkError::session("rewind not supported by this backend"))
+    }
+
+    /// Rewind a session by N steps from the end.
+    ///
+    /// If `steps` is 0, returns the session unchanged. If `steps` exceeds the
+    /// number of events, returns an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend does not support rewind, the session is
+    /// not found, or `steps` exceeds the event count.
+    async fn rewind_steps(&self, _session_id: &str, _steps: usize) -> Result<Box<dyn Session>> {
+        Err(adk_core::AdkError::session("rewind_steps not supported by this backend"))
+    }
+
     /// Verify backend connectivity.
     ///
     /// Returns `Ok(())` if the backend is reachable and responsive.

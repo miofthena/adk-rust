@@ -98,12 +98,11 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
         .iter()
         .filter(|attr| attr.path().is_ident("doc"))
         .filter_map(|attr| {
-            if let syn::Meta::NameValue(nv) = &attr.meta {
-                if let syn::Expr::Lit(lit) = &nv.value {
-                    if let syn::Lit::Str(s) = &lit.lit {
-                        return Some(s.value().trim().to_string());
-                    }
-                }
+            if let syn::Meta::NameValue(nv) = &attr.meta
+                && let syn::Expr::Lit(lit) = &nv.value
+                && let syn::Lit::Str(s) = &lit.lit
+            {
+                return Some(s.value().trim().to_string());
             }
             None
         })
@@ -403,7 +402,7 @@ pub fn entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // Validate: must be async
     if input_fn.sig.asyncness.is_none() {
         return syn::Error::new_spanned(
-            &input_fn.sig.fn_token,
+            input_fn.sig.fn_token,
             "#[entrypoint] functions must be async",
         )
         .to_compile_error()
@@ -614,8 +613,10 @@ pub fn entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # Attributes
 ///
 /// - `retry(max_attempts = N, backoff = "Xs")` — retry on failure with exponential backoff
+/// - `rerun_on_resume` — always re-execute on workflow resume, skip cached results
+/// - `rerun_on_resume = true` / `rerun_on_resume = false` — explicit boolean form
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust,ignore
 /// use adk_graph::functional::TaskContext;
@@ -627,6 +628,18 @@ pub fn entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     Ok(serde_json::json!({"processed": input}))
 /// }
 ///
+/// #[task(rerun_on_resume)]
+/// async fn step_b(ctx: &mut TaskContext) -> Result<Value> {
+///     // This task always re-executes on resume, never uses cached results
+///     Ok(serde_json::json!({"timestamp": chrono::Utc::now().to_rfc3339()}))
+/// }
+///
+/// #[task(rerun_on_resume, retry(max_attempts = 2, backoff = "2s"))]
+/// async fn step_c(ctx: &mut TaskContext) -> Result<Value> {
+///     // Combined: re-executes on resume with retry logic
+///     Ok(serde_json::json!({"status": "ok"}))
+/// }
+///
 /// // Generates: async fn __task_step_a(ctx: &mut TaskContext, input: &str) -> Result<Value>
 /// // which wraps step_a with checkpoint/retry/streaming logic.
 /// ```
@@ -636,7 +649,7 @@ pub fn task(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // Validate: must be async
     if input_fn.sig.asyncness.is_none() {
-        return syn::Error::new_spanned(&input_fn.sig.fn_token, "#[task] functions must be async")
+        return syn::Error::new_spanned(input_fn.sig.fn_token, "#[task] functions must be async")
             .to_compile_error()
             .into();
     }
@@ -737,6 +750,20 @@ pub fn task(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
+    // Generate cache-check code based on rerun_on_resume flag
+    let cache_check = if task_attrs.rerun_on_resume {
+        // rerun_on_resume = true: skip cache check, always execute
+        quote! {}
+    } else {
+        // Default: check ExecutionLog for cached results (resume-skip path)
+        quote! {
+            // Check if already completed (resume path)
+            if let Some(cached_result) = ctx.get_cached_result(task_id).await {
+                return Ok(cached_result);
+            }
+        }
+    };
+
     let output = quote! {
         // Preserve the original function for direct testing
         #input_fn
@@ -752,10 +779,7 @@ pub fn task(attr: TokenStream, item: TokenStream) -> TokenStream {
         #fn_vis async fn #wrapper_name(#params) #return_type {
             let task_id = #fn_name_str;
 
-            // Check if already completed (resume path)
-            if let Some(cached_result) = ctx.get_cached_result(task_id).await {
-                return Ok(cached_result);
-            }
+            #cache_check
 
             // Emit task start event
             let current_step = ctx.current_step().await;
@@ -791,80 +815,107 @@ struct RetryConfig {
 /// Parsed attributes from `#[task(...)]`.
 struct TaskAttrs {
     retry: Option<RetryConfig>,
+    rerun_on_resume: bool,
 }
 
 /// Parse task attributes from the attribute token stream.
 ///
 /// Supports:
-/// - `#[task]` — no retry
+/// - `#[task]` — no retry, no rerun
 /// - `#[task(retry(max_attempts = 3, backoff = "1s"))]` — with retry
+/// - `#[task(rerun_on_resume)]` — always re-execute on resume (skip cache)
+/// - `#[task(rerun_on_resume = true)]` — explicit boolean form
+/// - `#[task(rerun_on_resume, retry(max_attempts = 3, backoff = "1s"))]` — combined
 fn parse_task_attrs(attr: TokenStream) -> TaskAttrs {
     if attr.is_empty() {
-        return TaskAttrs { retry: None };
+        return TaskAttrs { retry: None, rerun_on_resume: false };
     }
 
     // Parse the attribute as a Meta list
     let attr_meta: syn::Result<syn::Meta> = syn::parse(attr.clone());
-    if let Ok(syn::Meta::List(meta_list)) = attr_meta {
-        if meta_list.path.is_ident("retry") {
-            if let Some(retry) = parse_retry_from_meta_list(&meta_list) {
-                return TaskAttrs { retry: Some(retry) };
-            }
-        }
+    if let Ok(syn::Meta::List(meta_list)) = attr_meta
+        && meta_list.path.is_ident("retry")
+        && let Some(retry) = parse_retry_from_meta_list(&meta_list)
+    {
+        return TaskAttrs { retry: Some(retry), rerun_on_resume: false };
     }
 
     // Try parsing as just the inner content of task(...)
     // e.g., the attr stream is: `retry(max_attempts = 3, backoff = "1s")`
+    // or: `rerun_on_resume`
+    // or: `rerun_on_resume, retry(max_attempts = 3, backoff = "1s")`
     let attr2: proc_macro2::TokenStream = attr.into();
     let parsed: syn::Result<TaskAttrContent> = syn::parse2(attr2);
     if let Ok(content) = parsed {
-        return TaskAttrs { retry: content.retry };
+        return TaskAttrs { retry: content.retry, rerun_on_resume: content.rerun_on_resume };
     }
 
-    TaskAttrs { retry: None }
+    TaskAttrs { retry: None, rerun_on_resume: false }
 }
 
-/// Inner content parsed from `#[task(retry(...))]`.
+/// Inner content parsed from `#[task(retry(...), rerun_on_resume)]`.
 struct TaskAttrContent {
     retry: Option<RetryConfig>,
+    rerun_on_resume: bool,
 }
 
 impl syn::parse::Parse for TaskAttrContent {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let ident: syn::Ident = input.parse()?;
-        if ident != "retry" {
-            return Ok(TaskAttrContent { retry: None });
-        }
+        let mut retry = None;
+        let mut rerun_on_resume = false;
 
-        let content;
-        syn::parenthesized!(content in input);
+        // Parse comma-separated items: identifiers, name-value pairs, or calls like retry(...)
+        while !input.is_empty() {
+            let ident: syn::Ident = input.parse()?;
 
-        let mut max_attempts: u32 = 3;
-        let mut backoff_secs: u64 = 1;
+            if ident == "retry" {
+                let content;
+                syn::parenthesized!(content in input);
 
-        // Parse key = value pairs separated by commas
-        let pairs =
-            syn::punctuated::Punctuated::<syn::MetaNameValue, syn::Token![,]>::parse_terminated(
-                &content,
-            )?;
+                let mut max_attempts: u32 = 3;
+                let mut backoff_secs: u64 = 1;
 
-        for pair in pairs {
-            if pair.path.is_ident("max_attempts") {
-                if let syn::Expr::Lit(expr_lit) = &pair.value {
-                    if let syn::Lit::Int(lit_int) = &expr_lit.lit {
+                let pairs = syn::punctuated::Punctuated::<syn::MetaNameValue, syn::Token![,]>::parse_terminated(&content)?;
+
+                for pair in pairs {
+                    if pair.path.is_ident("max_attempts")
+                        && let syn::Expr::Lit(expr_lit) = &pair.value
+                        && let syn::Lit::Int(lit_int) = &expr_lit.lit
+                    {
                         max_attempts = lit_int.base10_parse().unwrap_or(3);
-                    }
-                }
-            } else if pair.path.is_ident("backoff") {
-                if let syn::Expr::Lit(expr_lit) = &pair.value {
-                    if let syn::Lit::Str(lit_str) = &expr_lit.lit {
+                    } else if pair.path.is_ident("backoff")
+                        && let syn::Expr::Lit(expr_lit) = &pair.value
+                        && let syn::Lit::Str(lit_str) = &expr_lit.lit
+                    {
                         backoff_secs = parse_duration_str(&lit_str.value());
                     }
                 }
+
+                retry = Some(RetryConfig { max_attempts, backoff_secs });
+            } else if ident == "rerun_on_resume" {
+                // Accept both `rerun_on_resume` (flag, implies true)
+                // and `rerun_on_resume = true` / `rerun_on_resume = false`
+                if input.peek(syn::Token![=]) {
+                    let _eq: syn::Token![=] = input.parse()?;
+                    let lit: syn::LitBool = input.parse()?;
+                    rerun_on_resume = lit.value;
+                } else {
+                    rerun_on_resume = true;
+                }
+            } else {
+                return Err(syn::Error::new_spanned(
+                    ident,
+                    "unknown task attribute; expected `retry(...)` or `rerun_on_resume`",
+                ));
+            }
+
+            // Consume optional trailing comma
+            if input.peek(syn::Token![,]) {
+                let _comma: syn::Token![,] = input.parse()?;
             }
         }
 
-        Ok(TaskAttrContent { retry: Some(RetryConfig { max_attempts, backoff_secs }) })
+        Ok(TaskAttrContent { retry, rerun_on_resume })
     }
 }
 
@@ -878,18 +929,16 @@ fn parse_retry_from_meta_list(meta_list: &syn::MetaList) -> Option<RetryConfig> 
 
     if let Ok(pairs) = pairs {
         for pair in pairs {
-            if pair.path.is_ident("max_attempts") {
-                if let syn::Expr::Lit(expr_lit) = &pair.value {
-                    if let syn::Lit::Int(lit_int) = &expr_lit.lit {
-                        max_attempts = lit_int.base10_parse().unwrap_or(3);
-                    }
-                }
-            } else if pair.path.is_ident("backoff") {
-                if let syn::Expr::Lit(expr_lit) = &pair.value {
-                    if let syn::Lit::Str(lit_str) = &expr_lit.lit {
-                        backoff_secs = parse_duration_str(&lit_str.value());
-                    }
-                }
+            if pair.path.is_ident("max_attempts")
+                && let syn::Expr::Lit(expr_lit) = &pair.value
+                && let syn::Lit::Int(lit_int) = &expr_lit.lit
+            {
+                max_attempts = lit_int.base10_parse().unwrap_or(3);
+            } else if pair.path.is_ident("backoff")
+                && let syn::Expr::Lit(expr_lit) = &pair.value
+                && let syn::Lit::Str(lit_str) = &expr_lit.lit
+            {
+                backoff_secs = parse_duration_str(&lit_str.value());
             }
         }
         Some(RetryConfig { max_attempts, backoff_secs })

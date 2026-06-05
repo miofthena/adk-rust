@@ -20,12 +20,18 @@ adk-guardrail = { workspace = true, optional = true }
 adk-plugin = { workspace = true, optional = true }
 adk-sandbox = { workspace = true, optional = true }
 async-trait = { workspace = true }
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["time", "sync", "rt"] }
 futures = { workspace = true }
 async-stream = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+chrono = { workspace = true }
+schemars = "1.0"
+jsonschema = { version = "0.28", default-features = false }
+cron = { version = "0.15", optional = true }
+notify = { version = "8", optional = true }
+axum = { version = "0.8", optional = true }
 
 [features]
 default = ["skills"]
@@ -34,6 +40,7 @@ enhanced-plugins = ["dep:adk-plugin"]
 skills = ["dep:adk-skill"]
 sandbox = ["dep:adk-sandbox", "adk-sandbox/workspace"]
 record-payloads = []
+ambient = ["dep:cron", "dep:notify", "dep:axum"]
 
 [dev-dependencies]
 adk-model = { workspace = true, features = ["gemini"] }

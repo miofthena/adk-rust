@@ -75,6 +75,8 @@ pub struct LlmAgent {
     #[allow(dead_code)] // Part of public API via builder
     input_schema: Option<serde_json::Value>,
     output_schema: Option<serde_json::Value>,
+    /// Maximum retry attempts for output schema validation (default: 3).
+    output_max_retries: usize,
     disallow_transfer_to_parent: bool,
     disallow_transfer_to_peers: bool,
     include_contents: adk_core::IncludeContents,
@@ -200,6 +202,79 @@ impl LlmAgent {
     }
 }
 
+/// Validate a JSON string against an output schema.
+///
+/// Returns `Ok(valid_json)` if the text parses as valid JSON and passes schema
+/// validation. Returns `Err(error_message)` describing the validation failure.
+fn validate_output_against_schema(
+    text: &str,
+    schema: &serde_json::Value,
+) -> std::result::Result<serde_json::Value, String> {
+    let parsed: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("Response is not valid JSON: {e}"))?;
+
+    let validator =
+        jsonschema::validator_for(schema).map_err(|e| format!("Invalid schema: {e}"))?;
+
+    let errors: Vec<String> = validator.iter_errors(&parsed).map(|e| e.to_string()).collect();
+
+    if errors.is_empty() { Ok(parsed) } else { Err(errors.join("; ")) }
+}
+
+/// Extract the text content from a series of events.
+///
+/// Scans events in reverse order for the last non-empty text content
+/// produced by the agent. Used internally for output schema validation.
+fn extract_text_from_events(events: &[Event]) -> Option<String> {
+    for event in events.iter().rev() {
+        if let Some(ref content) = event.llm_response.content {
+            let text: String =
+                content
+                    .parts
+                    .iter()
+                    .filter_map(|p| {
+                        if let Part::Text { text } = p { Some(text.as_str()) } else { None }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("");
+            if !text.is_empty() {
+                return Some(text);
+            }
+        }
+    }
+    None
+}
+
+/// Extract a typed value from agent events.
+///
+/// Scans events for the last text content and deserializes it into `T`.
+/// This is useful after running an agent with `output_schema` set to
+/// extract the structured result.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use serde::Deserialize;
+/// use adk_agent::extract_typed;
+///
+/// #[derive(Deserialize)]
+/// struct Weather {
+///     temperature: f64,
+///     condition: String,
+/// }
+///
+/// let events: Vec<Event> = collect_events_from_stream(stream).await?;
+/// let weather: Weather = extract_typed(&events)?;
+/// ```
+pub fn extract_typed<T: serde::de::DeserializeOwned>(events: &[Event]) -> Result<T> {
+    let text = extract_text_from_events(events).ok_or_else(|| {
+        adk_core::AdkError::agent("no text content found in events for typed extraction")
+    })?;
+
+    serde_json::from_str(&text)
+        .map_err(|e| adk_core::AdkError::agent(format!("output deserialization failed: {e}")))
+}
+
 /// Builder for constructing an [`LlmAgent`] with all configuration options.
 pub struct LlmAgentBuilder {
     name: String,
@@ -214,6 +289,7 @@ pub struct LlmAgentBuilder {
     max_skill_chars: usize,
     input_schema: Option<serde_json::Value>,
     output_schema: Option<serde_json::Value>,
+    output_max_retries: usize,
     disallow_transfer_to_parent: bool,
     disallow_transfer_to_peers: bool,
     include_contents: adk_core::IncludeContents,
@@ -263,6 +339,7 @@ impl LlmAgentBuilder {
             max_skill_chars: 2000,
             input_schema: None,
             output_schema: None,
+            output_max_retries: 3,
             disallow_transfer_to_parent: false,
             disallow_transfer_to_peers: false,
             include_contents: adk_core::IncludeContents::Default,
@@ -375,6 +452,44 @@ impl LlmAgentBuilder {
     /// Set a JSON schema for structured output from the LLM.
     pub fn output_schema(mut self, schema: serde_json::Value) -> Self {
         self.output_schema = Some(schema);
+        self
+    }
+
+    /// Derive the output schema from a Rust type using `schemars`.
+    ///
+    /// This is a convenience method that generates a JSON Schema from `T`'s
+    /// `JsonSchema` implementation and sets it as the output schema.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use schemars::JsonSchema;
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(JsonSchema, Deserialize)]
+    /// struct MyOutput {
+    ///     name: String,
+    ///     score: f64,
+    /// }
+    ///
+    /// let agent = LlmAgentBuilder::new("my-agent")
+    ///     .model(model)
+    ///     .output_type::<MyOutput>()
+    ///     .build()?;
+    /// ```
+    pub fn output_type<T: schemars::JsonSchema>(mut self) -> Self {
+        let schema = schemars::schema_for!(T);
+        self.output_schema =
+            Some(serde_json::to_value(schema).expect("schema serialization cannot fail"));
+        self
+    }
+
+    /// Set the maximum number of retry attempts for output schema validation.
+    ///
+    /// When the LLM produces output that fails schema validation, the agent
+    /// will retry up to this many times with a correction prompt. Default is 3.
+    pub fn output_max_retries(mut self, n: usize) -> Self {
+        self.output_max_retries = n;
         self
     }
 
@@ -796,6 +911,7 @@ impl LlmAgentBuilder {
             max_skill_chars: self.max_skill_chars,
             input_schema: self.input_schema,
             output_schema: self.output_schema,
+            output_max_retries: self.output_max_retries,
             disallow_transfer_to_parent: self.disallow_transfer_to_parent,
             disallow_transfer_to_peers: self.disallow_transfer_to_peers,
             include_contents: self.include_contents,
@@ -1055,6 +1171,7 @@ impl Agent for LlmAgent {
         let max_skill_chars = self.max_skill_chars;
         let output_key = self.output_key.clone();
         let output_schema = self.output_schema.clone();
+        let output_max_retries = self.output_max_retries;
         let generate_content_config = self.generate_content_config.clone();
         let include_contents = self.include_contents;
         let max_iterations = self.max_iterations;
@@ -1196,6 +1313,20 @@ impl Agent for LlmAgent {
                         parts: vec![Part::Text { text: processed }],
                     });
                 }
+            }
+
+            // ===== OUTPUT SCHEMA INSTRUCTION INJECTION =====
+            // When output_schema is set, append a directive instructing the LLM
+            // to respond with valid JSON conforming to the schema.
+            if let Some(ref schema) = output_schema {
+                let schema_instruction = format!(
+                    "You MUST respond with valid JSON conforming to this schema: {}. Do not include any text outside the JSON object.",
+                    schema
+                );
+                prompt_preamble.push(Content {
+                    role: "user".to_string(),
+                    parts: vec![Part::Text { text: schema_instruction }],
+                });
             }
 
             // ===== LOAD SESSION HISTORY =====
@@ -1383,6 +1514,7 @@ impl Agent for LlmAgent {
 
             // Multi-turn loop with max iterations
             let mut iteration = 0;
+            let mut schema_retry_count: usize = 0;
 
             loop {
                 iteration += 1;
@@ -1787,6 +1919,53 @@ impl Agent for LlmAgent {
                 }
 
                 if !has_function_calls {
+                    // ===== OUTPUT SCHEMA VALIDATION =====
+                    // When output_schema is set, validate the response text against
+                    // the schema. If invalid, retry with a correction prompt up to
+                    // output_max_retries times.
+                    if let Some(ref schema) = output_schema {
+                        let text = accumulated_content
+                            .as_ref()
+                            .map(|c| {
+                                c.parts
+                                    .iter()
+                                    .filter_map(|p| {
+                                        if let Part::Text { text } = p {
+                                            Some(text.as_str())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("")
+                            })
+                            .unwrap_or_default();
+
+                        if !text.is_empty()
+                            && let Err(validation_error) = validate_output_against_schema(&text, schema)
+                        {
+                                if schema_retry_count >= output_max_retries {
+                                    yield Err(adk_core::AdkError::agent(format!(
+                                        "output schema validation failed after {} attempts",
+                                        output_max_retries
+                                    )));
+                                    return;
+                                }
+                                schema_retry_count += 1;
+
+                                // Append a correction prompt and retry
+                                let correction = format!(
+                                    "Your output did not match the required schema. Error: {}. Please produce valid JSON matching the schema.",
+                                    validation_error
+                                );
+                                conversation_history.push(Content {
+                                    role: "user".to_string(),
+                                    parts: vec![Part::Text { text: correction }],
+                                });
+                                continue;
+                        }
+                    }
+
                     // No function calls, we're done
                     // Record LLM response for tracing
                     if let Some(ref content) = accumulated_content {

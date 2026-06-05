@@ -65,6 +65,10 @@ Welcome to the official documentation for ADK-Rust (Agent Development Kit for Ru
 
 - [Agent Evaluation](evaluation/evaluation.md) - Testing and validating agent behavior
 
+## Managed Agents
+
+- [Managed Agent Runtime](managed-agents/runtime.md) - Provider-neutral, durable, resumable agent execution engine (Experimental)
+
 ## Security
 
 - [Access Control](security/access-control.md) - Role-based permissions and audit logging

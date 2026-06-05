@@ -975,6 +975,31 @@ pub mod avatar {
 }
 
 // ============================================================================
+// Managed Agent Runtime (feature-gated, experimental)
+// ============================================================================
+
+/// Managed agent runtime — durable, resumable, provider-neutral agent execution.
+///
+/// Provides the `ManagedAgentRuntime` trait and `DefaultManagedAgentRuntime`:
+/// - [`ManagedAgentRuntime`](managed::ManagedAgentRuntime) - Central lifecycle trait
+/// - [`DefaultManagedAgentRuntime`](managed::DefaultManagedAgentRuntime) - Default implementation
+/// - [`ManagedAgentDef`](managed::types::ManagedAgentDef) - Declarative agent definition
+/// - [`SessionEvent`](managed::types::SessionEvent) - Provider-neutral event stream
+/// - [`UserEvent`](managed::types::UserEvent) - Client-to-agent events
+/// - [`ModelResolver`](managed::ModelResolver) - ModelRef → Arc<dyn Llm> resolution
+/// - [`ScriptedLlm`](managed::ScriptedLlm) - Deterministic testing double
+///
+/// STABILITY: Experimental, additive, feature-gated. No breaking changes to
+/// existing `Runner`/`LlmAgent` APIs when this feature is disabled.
+///
+/// Available with feature: `managed-runtime`
+#[cfg(feature = "managed-runtime")]
+#[cfg_attr(docsrs, doc(cfg(feature = "managed-runtime")))]
+pub mod managed {
+    pub use adk_managed::*;
+}
+
+// ============================================================================
 // Convenience Functions
 // ============================================================================
 

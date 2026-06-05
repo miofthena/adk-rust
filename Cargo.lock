@@ -457,6 +457,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "adk-managed"
+version = "0.10.0"
+dependencies = [
+ "adk-agent",
+ "adk-core",
+ "adk-memory",
+ "adk-model",
+ "adk-runner",
+ "adk-sandbox",
+ "adk-session",
+ "adk-skill",
+ "adk-telemetry",
+ "adk-tool",
+ "async-stream",
+ "async-trait",
+ "chrono",
+ "futures",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "uuid 1.23.1",
+]
+
+[[package]]
 name = "adk-memory"
 version = "0.10.0"
 dependencies = [
@@ -696,6 +725,7 @@ dependencies = [
  "adk-eval",
  "adk-graph",
  "adk-guardrail",
+ "adk-managed",
  "adk-memory",
  "adk-model",
  "adk-payments",

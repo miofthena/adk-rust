@@ -115,6 +115,11 @@ adk-audio/       Audio processing, STT/TTS providers, Deepgram streaming, deskto
 adk-rag/         Retrieval-augmented generation pipelines
 adk-action/      Action node definitions (14 node types), StandardProperties, variable
                  interpolation — shared types for adk-graph ActionNodeExecutor
+adk-managed/     Managed agent runtime — provider-neutral, durable, resumable agent execution
+                 engine. ManagedAgentRuntime trait, DefaultManagedAgentRuntime, declarative
+                 ManagedAgentDef, supervised session loop with checkpointing, custom tool
+                 parking, event replay, ScriptedLlm test double, golden fixture tests.
+                 Feature-gated: `managed-runtime` on umbrella crate. EXPERIMENTAL.
 adk-deploy/      Deployment utilities
 adk-payments/    Payment integration: ACP commerce, AP2 alpha mandates, multi-actor flows
 cargo-adk/       Cargo subcommand for project scaffolding and deployment
@@ -216,6 +221,7 @@ Production backend features (require external infrastructure, NOT included in `f
 - `postgres-session`, `redis-session`, `mongodb-session`, `firestore-session`, `neo4j-session`
 - `sqlite-memory`, `database-memory`, `redis-memory`, `mongodb-memory`, `neo4j-memory`
 - `auth-bridge`
+- `managed-runtime` — Managed agent runtime (adk-managed): durable sessions, event streaming, provider parity
 
 Specialist opt-in features:
 - `yaml-agent`, `agent-registry` — YAML agent config and registry REST API

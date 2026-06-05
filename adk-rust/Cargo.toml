@@ -101,6 +101,9 @@ payments = ["dep:adk-payments"]
 awp = ["dep:adk-awp"]
 acp = ["dep:adk-acp"]
 
+# Managed agent runtime (feature-gated, experimental)
+managed-runtime = ["dep:adk-managed"]
+
 # A2A protocol feature (forwarded to adk-server)
 a2a = ["server", "adk-server/a2a-v1"]
 
@@ -237,6 +240,7 @@ adk-action = { workspace = true, optional = true }
 adk-anthropic = { workspace = true, optional = true }
 adk-awp = { workspace = true, optional = true }
 adk-acp = { workspace = true, optional = true }
+adk-managed = { workspace = true, optional = true }
 
 # Re-export common dependencies
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net", "signal", "fs", "process", "io-util"] }

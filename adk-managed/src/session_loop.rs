@@ -38,6 +38,8 @@ use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+#[cfg(feature = "memory")]
+use adk_core::Memory;
 use adk_core::{Agent, Content, Event, Part};
 use adk_runner::Runner;
 use adk_session::service::SessionService;
@@ -110,6 +112,9 @@ pub struct SessionLoop {
     agent: Arc<dyn Agent>,
     /// Session persistence backend (needed by the Runner).
     session_service: Arc<dyn SessionService>,
+    /// Optional memory service for cross-session RAG injection.
+    #[cfg(feature = "memory")]
+    memory: Option<Arc<dyn Memory>>,
     /// Accumulated usage tracking across all turns.
     usage_tracker: SessionUsageTracker,
 }
@@ -149,6 +154,8 @@ impl SessionLoop {
             status: SessionStatus::Queued,
             agent,
             session_service,
+            #[cfg(feature = "memory")]
+            memory: None,
             usage_tracker: SessionUsageTracker::new(),
         }
     }
@@ -158,6 +165,43 @@ impl SessionLoop {
     /// This allows the runtime to share the pause flag, notify, and checkpoint
     /// with the session handle so that `pause()`, `resume()`, and `stream_events()`
     /// (replay) work correctly against the same state the loop writes to.
+    #[cfg(feature = "memory")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_pause_controls(
+        session_id: String,
+        event_rx: mpsc::Receiver<UserEvent>,
+        event_tx: broadcast::Sender<SessionEvent>,
+        parking: Arc<ToolParkingLot>,
+        cancel_token: CancellationToken,
+        pause_flag: Arc<Mutex<bool>>,
+        pause_notify: Arc<Notify>,
+        checkpoint: Arc<RwLock<CheckpointManager>>,
+        agent: Arc<dyn Agent>,
+        session_service: Arc<dyn SessionService>,
+        memory: Option<Arc<dyn Memory>>,
+    ) -> Self {
+        Self {
+            session_id,
+            event_rx,
+            event_tx,
+            seq: SequenceCounter::default(),
+            parking,
+            checkpoint,
+            cancel_token,
+            pause_flag,
+            pause_notify,
+            status: SessionStatus::Queued,
+            agent,
+            session_service,
+            memory,
+            usage_tracker: SessionUsageTracker::new(),
+        }
+    }
+
+    /// Create a session loop with custom pause controls (for external pause/resume).
+    ///
+    /// See the `memory`-enabled variant for full documentation.
+    #[cfg(not(feature = "memory"))]
     #[allow(clippy::too_many_arguments)]
     pub fn with_pause_controls(
         session_id: String,
@@ -409,13 +453,19 @@ impl SessionLoop {
 
     /// Build a Runner instance for this turn.
     fn build_runner(&self) -> Result<Runner, RuntimeError> {
-        Runner::builder()
+        #[allow(unused_mut)]
+        let mut builder = Runner::builder()
             .app_name("managed")
             .agent(Arc::clone(&self.agent))
             .session_service(Arc::clone(&self.session_service))
-            .cancellation_token(self.cancel_token.clone())
-            .build()
-            .map_err(|e| RuntimeError::internal(format!("failed to build runner: {e}")))
+            .cancellation_token(self.cancel_token.clone());
+
+        #[cfg(feature = "memory")]
+        if let Some(ref memory) = self.memory {
+            builder = builder.memory_service(Arc::clone(memory));
+        }
+
+        builder.build().map_err(|e| RuntimeError::internal(format!("failed to build runner: {e}")))
     }
 
     /// Convert managed ContentBlocks into an adk-core Content for the Runner.
@@ -862,6 +912,21 @@ mod tests {
         let session_service: Arc<dyn SessionService> =
             Arc::new(adk_session::InMemorySessionService::new());
 
+        #[cfg(feature = "memory")]
+        let session_loop = SessionLoop::with_pause_controls(
+            "pause_test".to_string(),
+            event_rx,
+            broadcast_tx,
+            parking,
+            cancel.clone(),
+            Arc::clone(&pause_flag),
+            Arc::clone(&pause_notify),
+            Arc::new(RwLock::new(CheckpointManager::new("pause_test".to_string()))),
+            agent,
+            session_service,
+            None,
+        );
+        #[cfg(not(feature = "memory"))]
         let session_loop = SessionLoop::with_pause_controls(
             "pause_test".to_string(),
             event_rx,

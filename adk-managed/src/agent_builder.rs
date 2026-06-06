@@ -20,6 +20,8 @@ use serde_json::Value;
 
 use adk_agent::LlmAgentBuilder;
 use adk_core::{Agent, Llm, Tool, ToolConfirmationPolicy, ToolContext};
+#[cfg(feature = "sandbox")]
+use adk_sandbox::{ExecRequest, Language, SandboxBackend};
 
 use crate::types::{ManagedAgentDef, PermissionMode, PermissionPolicy, ToolConfig};
 
@@ -44,6 +46,7 @@ pub enum BuildError {
 ///
 /// * `def` — The declarative agent definition.
 /// * `model` — A resolved LLM instance (from [`ModelResolver`](crate::resolver::ModelResolver)).
+/// * `sandbox` — Optional sandbox backend for isolated tool execution (sandbox feature only).
 ///
 /// # Returns
 ///
@@ -55,9 +58,95 @@ pub enum BuildError {
 /// use adk_managed::agent_builder::build_agent;
 /// use adk_managed::types::ManagedAgentDef;
 ///
-/// let agent = build_agent(&def, model).unwrap();
+/// let agent = test_build_agent(&def, model);
 /// println!("Built agent: {}", agent.name());
 /// ```
+#[cfg(feature = "sandbox")]
+pub fn build_agent(
+    def: &ManagedAgentDef,
+    model: Arc<dyn Llm>,
+    sandbox: Option<Arc<dyn SandboxBackend>>,
+) -> Result<Arc<dyn Agent>, BuildError> {
+    let mut builder = LlmAgentBuilder::new(&def.name).model(model);
+
+    // Wire system prompt
+    if let Some(ref system) = def.system {
+        builder = builder.instruction(system.clone());
+    }
+
+    // Wire description
+    if let Some(ref description) = def.description {
+        builder = builder.description(description.clone());
+    }
+
+    // Wire tools
+    for tool_config in &def.tools {
+        let tool: Arc<dyn Tool> = match tool_config {
+            ToolConfig::Bash {} => Arc::new(ManagedBuiltinTool::new(
+                "bash",
+                "Execute bash shell commands in the agent's workspace.",
+                sandbox.clone(),
+            )),
+            ToolConfig::Filesystem {} => Arc::new(ManagedBuiltinTool::new(
+                "filesystem",
+                "Read, write, and manage files in the agent's workspace.",
+                sandbox.clone(),
+            )),
+            ToolConfig::WebSearch {} => Arc::new(ManagedBuiltinTool::new(
+                "web_search",
+                "Search the web for information.",
+                sandbox.clone(),
+            )),
+            ToolConfig::WebFetch {} => Arc::new(ManagedBuiltinTool::new(
+                "web_fetch",
+                "Fetch and extract content from a URL.",
+                sandbox.clone(),
+            )),
+            ToolConfig::CodeExecution {} => Arc::new(ManagedBuiltinTool::new(
+                "code_execution",
+                "Execute code in a sandboxed environment.",
+                sandbox.clone(),
+            )),
+            ToolConfig::Custom { name, description, input_schema } => {
+                Arc::new(ManagedCustomTool::new(
+                    name.clone(),
+                    description.clone().unwrap_or_default(),
+                    input_schema.clone(),
+                ))
+            }
+        };
+        builder = builder.tool(tool);
+    }
+
+    // Wire permission policy → ToolConfirmationPolicy
+    if let Some(ref policy) = def.permission_policy {
+        let confirmation_policy = map_permission_policy(policy);
+        builder = builder.tool_confirmation_policy(confirmation_policy);
+    }
+
+    // Note: MCP servers and skills are registered in later tasks.
+    if !def.mcp_servers.is_empty() {
+        tracing::debug!(
+            mcp_count = def.mcp_servers.len(),
+            "MCP server configs noted (wiring deferred to session loop)"
+        );
+    }
+    if !def.skills.is_empty() {
+        tracing::debug!(
+            skill_count = def.skills.len(),
+            "skill refs noted (wiring deferred to session loop)"
+        );
+    }
+
+    let agent = builder.build().map_err(|e| BuildError::BuildFailed(e.to_string()))?;
+
+    Ok(Arc::new(agent))
+}
+
+/// Build a runnable agent from a [`ManagedAgentDef`] and a resolved model.
+///
+/// See the `sandbox`-enabled variant for full documentation.
+#[cfg(not(feature = "sandbox"))]
 pub fn build_agent(
     def: &ManagedAgentDef,
     model: Arc<dyn Llm>,
@@ -114,8 +203,6 @@ pub fn build_agent(
     }
 
     // Note: MCP servers and skills are registered in later tasks.
-    // MCP servers require the McpToolset lifecycle (task 5.x).
-    // Skills require skill injection integration.
     if !def.mcp_servers.is_empty() {
         tracing::debug!(
             mcp_count = def.mcp_servers.len(),
@@ -178,16 +265,40 @@ fn map_permission_policy(policy: &PermissionPolicy) -> ToolConfirmationPolicy {
 /// structured error indicating the service is unavailable unless explicitly
 /// configured.
 ///
-/// In a full production deployment with a sandbox configured, the session loop
-/// may intercept built-in tool calls and route them through the sandbox instead.
-#[derive(Debug, Clone)]
+/// When a sandbox backend is configured, execution tools (`bash`, `code_execution`)
+/// delegate to the sandbox for isolated execution instead of running in-process.
+#[derive(Clone)]
 pub struct ManagedBuiltinTool {
     name: String,
     description: String,
+    /// Optional sandbox backend for isolated execution.
+    #[cfg(feature = "sandbox")]
+    sandbox: Option<Arc<dyn SandboxBackend>>,
+}
+
+impl std::fmt::Debug for ManagedBuiltinTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("ManagedBuiltinTool");
+        d.field("name", &self.name).field("description", &self.description);
+        #[cfg(feature = "sandbox")]
+        d.field("sandbox", &self.sandbox.as_ref().map(|s| s.name()));
+        d.finish()
+    }
 }
 
 impl ManagedBuiltinTool {
-    /// Create a new built-in tool.
+    /// Create a new built-in tool with sandbox support.
+    #[cfg(feature = "sandbox")]
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        sandbox: Option<Arc<dyn SandboxBackend>>,
+    ) -> Self {
+        Self { name: name.into(), description: description.into(), sandbox }
+    }
+
+    /// Create a new built-in tool (no sandbox).
+    #[cfg(not(feature = "sandbox"))]
     pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self { name: name.into(), description: description.into() }
     }
@@ -265,6 +376,57 @@ impl ManagedBuiltinTool {
             })),
         }
     }
+
+    /// Execute via sandbox backend — delegates to `SandboxBackend::execute()`.
+    #[cfg(feature = "sandbox")]
+    async fn execute_via_sandbox(
+        &self,
+        sandbox: &Arc<dyn SandboxBackend>,
+        language: Language,
+        args: &Value,
+    ) -> adk_core::Result<Value> {
+        use std::collections::HashMap;
+        use std::time::Duration;
+
+        let code = match language {
+            Language::Command => {
+                // For bash/command, the code is in the "command" field
+                args.get("command").and_then(|v| v.as_str()).unwrap_or_default().to_string()
+            }
+            _ => {
+                // For language execution, the code is in the "code" field
+                args.get("code").and_then(|v| v.as_str()).unwrap_or_default().to_string()
+            }
+        };
+
+        if code.is_empty() {
+            return Ok(serde_json::json!({"error": "no code/command provided"}));
+        }
+
+        let timeout_secs = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30);
+
+        let request = ExecRequest {
+            language,
+            code,
+            stdin: args.get("stdin").and_then(|v| v.as_str()).map(String::from),
+            timeout: Duration::from_secs(timeout_secs),
+            memory_limit_mb: args.get("memory_limit_mb").and_then(|v| v.as_u64()).map(|v| v as u32),
+            env: HashMap::new(),
+        };
+
+        match sandbox.execute(request).await {
+            Ok(result) => Ok(serde_json::json!({
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "exit_code": result.exit_code,
+                "duration_ms": result.duration.as_millis() as u64
+            })),
+            Err(e) => Ok(serde_json::json!({
+                "error": format!("sandbox execution failed: {e}"),
+                "exit_code": -1
+            })),
+        }
+    }
 }
 
 #[async_trait]
@@ -279,7 +441,13 @@ impl Tool for ManagedBuiltinTool {
 
     async fn execute(&self, _ctx: Arc<dyn ToolContext>, args: Value) -> adk_core::Result<Value> {
         match self.name.as_str() {
-            "bash" => self.execute_bash(&args).await,
+            "bash" => {
+                #[cfg(feature = "sandbox")]
+                if let Some(ref sandbox) = self.sandbox {
+                    return self.execute_via_sandbox(sandbox, Language::Command, &args).await;
+                }
+                self.execute_bash(&args).await
+            }
             "filesystem" => self.execute_filesystem(&args).await,
             "code_execution" => {
                 // Code execution requires a sandbox backend. Without one configured,
@@ -289,6 +457,23 @@ impl Tool for ManagedBuiltinTool {
 
                 if code.is_empty() {
                     return Ok(serde_json::json!({"error": "no code provided"}));
+                }
+
+                #[cfg(feature = "sandbox")]
+                if let Some(ref sandbox) = self.sandbox {
+                    let lang = match language {
+                        "python" | "python3" => Language::Python,
+                        "javascript" | "js" | "node" => Language::JavaScript,
+                        "bash" | "sh" => Language::Command,
+                        "rust" => Language::Rust,
+                        "typescript" | "ts" => Language::TypeScript,
+                        other => {
+                            return Ok(serde_json::json!({
+                                "error": format!("unsupported language for sandbox: {other}")
+                            }));
+                        }
+                    };
+                    return self.execute_via_sandbox(sandbox, lang, &args).await;
                 }
 
                 let interpreter = match language {
@@ -459,6 +644,17 @@ mod tests {
         }
     }
 
+    /// Test helper: call build_agent with correct arity for current feature set.
+    #[cfg(feature = "sandbox")]
+    fn test_build_agent(def: &ManagedAgentDef, model: Arc<dyn Llm>) -> Arc<dyn Agent> {
+        build_agent(def, model, None).unwrap()
+    }
+
+    #[cfg(not(feature = "sandbox"))]
+    fn test_build_agent(def: &ManagedAgentDef, model: Arc<dyn Llm>) -> Arc<dyn Agent> {
+        build_agent(def, model).unwrap()
+    }
+
     #[test]
     fn test_build_agent_minimal_def() {
         let def = ManagedAgentDef {
@@ -474,7 +670,7 @@ mod tests {
         };
 
         let model: Arc<dyn Llm> = Arc::new(MockLlm::new("mock-model"));
-        let agent = build_agent(&def, model).unwrap();
+        let agent = test_build_agent(&def, model);
 
         assert_eq!(agent.name(), "test-agent");
     }
@@ -494,7 +690,7 @@ mod tests {
         };
 
         let model: Arc<dyn Llm> = Arc::new(MockLlm::new("mock-model"));
-        let agent = build_agent(&def, model).unwrap();
+        let agent = test_build_agent(&def, model);
 
         assert_eq!(agent.name(), "prompted-agent");
         assert_eq!(agent.description(), "A helpful agent");
@@ -521,7 +717,7 @@ mod tests {
         };
 
         let model: Arc<dyn Llm> = Arc::new(MockLlm::new("mock-model"));
-        let agent = build_agent(&def, model).unwrap();
+        let agent = test_build_agent(&def, model);
         assert_eq!(agent.name(), "tool-agent");
     }
 
@@ -550,7 +746,7 @@ mod tests {
         };
 
         let model: Arc<dyn Llm> = Arc::new(MockLlm::new("mock-model"));
-        let agent = build_agent(&def, model).unwrap();
+        let agent = test_build_agent(&def, model);
         assert_eq!(agent.name(), "custom-tool-agent");
     }
 
@@ -572,7 +768,7 @@ mod tests {
         };
 
         let model: Arc<dyn Llm> = Arc::new(MockLlm::new("mock-model"));
-        let agent = build_agent(&def, model).unwrap();
+        let agent = test_build_agent(&def, model);
         assert_eq!(agent.name(), "auto-agent");
     }
 
@@ -594,7 +790,7 @@ mod tests {
         };
 
         let model: Arc<dyn Llm> = Arc::new(MockLlm::new("mock-model"));
-        let agent = build_agent(&def, model).unwrap();
+        let agent = test_build_agent(&def, model);
         assert_eq!(agent.name(), "prompt-agent");
     }
 
@@ -619,7 +815,7 @@ mod tests {
         };
 
         let model: Arc<dyn Llm> = Arc::new(MockLlm::new("mock-model"));
-        let agent = build_agent(&def, model).unwrap();
+        let agent = test_build_agent(&def, model);
         assert_eq!(agent.name(), "mixed-agent");
     }
 
@@ -676,16 +872,27 @@ mod tests {
 
     // ─── ManagedBuiltinTool tests ────────────────────────────────────────────
 
+    /// Helper to create a builtin tool for testing (handles feature-gated constructor).
+    #[cfg(feature = "sandbox")]
+    fn make_builtin_tool(name: &str, desc: &str) -> ManagedBuiltinTool {
+        ManagedBuiltinTool::new(name, desc, None)
+    }
+
+    #[cfg(not(feature = "sandbox"))]
+    fn make_builtin_tool(name: &str, desc: &str) -> ManagedBuiltinTool {
+        ManagedBuiltinTool::new(name, desc)
+    }
+
     #[test]
     fn test_builtin_tool_metadata() {
-        let tool = ManagedBuiltinTool::new("bash", "Execute bash commands.");
+        let tool = make_builtin_tool("bash", "Execute bash commands.");
         assert_eq!(tool.name(), "bash");
         assert_eq!(tool.description(), "Execute bash commands.");
     }
 
     #[tokio::test]
     async fn test_builtin_tool_bash_executes() {
-        let tool = ManagedBuiltinTool::new("bash", "Execute bash commands.");
+        let tool = make_builtin_tool("bash", "Execute bash commands.");
         let ctx = Arc::new(adk_tool::SimpleToolContext::new("test-caller"));
         let result = tool.execute(ctx, serde_json::json!({"command": "echo hello"})).await.unwrap();
         assert_eq!(result["exit_code"], 0);
@@ -694,7 +901,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_builtin_tool_web_search_returns_error() {
-        let tool = ManagedBuiltinTool::new("web_search", "Search the web.");
+        let tool = make_builtin_tool("web_search", "Search the web.");
         let ctx = Arc::new(adk_tool::SimpleToolContext::new("test-caller"));
         let result = tool.execute(ctx, serde_json::json!({"query": "rust lang"})).await.unwrap();
         assert!(result["error"].as_str().unwrap().contains("not configured"));

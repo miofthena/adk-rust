@@ -263,6 +263,12 @@ impl ManagedAgentRuntime for DefaultManagedAgentRuntime {
         })?;
 
         // 2. Build agent from definition
+        #[cfg(feature = "sandbox")]
+        let agent = build_agent(&def, model, self.sandbox.clone()).map_err(|e| match e {
+            BuildError::InvalidDef(msg) => RuntimeError::invalid_request(msg),
+            BuildError::BuildFailed(msg) => RuntimeError::internal(msg),
+        })?;
+        #[cfg(not(feature = "sandbox"))]
         let agent = build_agent(&def, model).map_err(|e| match e {
             BuildError::InvalidDef(msg) => RuntimeError::invalid_request(msg),
             BuildError::BuildFailed(msg) => RuntimeError::internal(msg),
@@ -332,6 +338,21 @@ impl ManagedAgentRuntime for DefaultManagedAgentRuntime {
             .map_err(|e| RuntimeError::internal(format!("failed to seed session: {e}")))?;
 
         // 8. Spawn SessionLoop as background task
+        #[cfg(feature = "memory")]
+        let session_loop = SessionLoop::with_pause_controls(
+            session_id.clone(),
+            event_rx,
+            broadcast_tx.clone(),
+            Arc::clone(&parking),
+            cancel_token.clone(),
+            Arc::clone(&pause_flag),
+            Arc::clone(&pause_notify),
+            Arc::clone(&checkpoint),
+            Arc::clone(&agent_arc),
+            Arc::clone(&self.session_service),
+            self.memory.clone(),
+        );
+        #[cfg(not(feature = "memory"))]
         let session_loop = SessionLoop::with_pause_controls(
             session_id.clone(),
             event_rx,

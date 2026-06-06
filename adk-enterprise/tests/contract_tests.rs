@@ -83,3 +83,32 @@ fn tool_confirmation_uses_result_field() {
     assert_eq!(json["result"], "allow");
     assert!(json.get("action").is_none());
 }
+
+#[test]
+fn user_message_serializes_with_content_blocks() {
+    // CANON §3.4: user.message carries content: ContentBlock[], not text: String
+    let event = UserEvent::message("Hello, agent!");
+    let json = serde_json::to_value(&event).unwrap();
+
+    assert_eq!(json["type"], "user.message");
+    assert!(json.get("text").is_none(), "user.message must NOT have a 'text' field");
+    assert!(json.get("content").is_some(), "user.message must have a 'content' field");
+    assert_eq!(json["content"][0]["type"], "text");
+    assert_eq!(json["content"][0]["text"], "Hello, agent!");
+}
+
+#[test]
+fn user_message_deserializes_from_canon() {
+    let json = r#"{"type":"user.message","content":[{"type":"text","text":"Hi there"}]}"#;
+    let event: UserEvent = serde_json::from_str(json).unwrap();
+    match event {
+        UserEvent::Message { content } => {
+            assert_eq!(content.len(), 1);
+            match &content[0] {
+                ContentBlock::Text { text } => assert_eq!(text, "Hi there"),
+                _ => panic!("expected Text block"),
+            }
+        }
+        _ => panic!("expected Message variant"),
+    }
+}

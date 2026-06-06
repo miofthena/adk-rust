@@ -8,16 +8,24 @@ fn test_user_event_message_serialization() {
     let json = serde_json::to_value(&event).unwrap();
 
     assert_eq!(json["type"], "user.message");
-    assert_eq!(json["text"], "Hello, agent!");
+    assert_eq!(json["content"][0]["type"], "text");
+    assert_eq!(json["content"][0]["text"], "Hello, agent!");
 }
 
 #[test]
 fn test_user_event_message_deserialization() {
-    let json = r#"{"type": "user.message", "text": "Hello, agent!"}"#;
+    let json =
+        r#"{"type": "user.message", "content": [{"type": "text", "text": "Hello, agent!"}]}"#;
     let event: UserEvent = serde_json::from_str(json).unwrap();
 
     match event {
-        UserEvent::Message { text } => assert_eq!(text, "Hello, agent!"),
+        UserEvent::Message { content } => {
+            assert_eq!(content.len(), 1);
+            match &content[0] {
+                ContentBlock::Text { text } => assert_eq!(text, "Hello, agent!"),
+                _ => panic!("expected Text block"),
+            }
+        }
         _ => panic!("expected Message variant"),
     }
 }

@@ -190,7 +190,11 @@ async fn test_custom_tool_round_trip() {
                     let result_content =
                         format!("22°C, sunny in {}", input["city"].as_str().unwrap_or("unknown"));
                     client
-                        .custom_tool_result(&session.id, &custom_tool_use_id, &result_content)
+                        .custom_tool_result(
+                            &session.id,
+                            &custom_tool_use_id,
+                            vec![adk_enterprise::ContentBlock::text(result_content)],
+                        )
                         .await
                         .expect("failed to send custom tool result");
 

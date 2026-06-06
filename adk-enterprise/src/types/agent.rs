@@ -9,7 +9,6 @@ use super::tools::{McpServerConfig, PermissionPolicy, SkillRef, ToolConfig};
 
 /// A managed agent configuration as returned by the API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Agent {
     pub id: String,
     pub name: String,
@@ -37,7 +36,6 @@ pub struct Agent {
 
 /// Parameters for creating a new agent.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateAgentParams {
     pub name: String,
     pub model: ModelRef,
@@ -59,7 +57,6 @@ pub struct CreateAgentParams {
 
 /// Parameters for updating an existing agent.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 pub struct UpdateAgentParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,

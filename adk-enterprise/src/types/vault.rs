@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 /// A vault container for MCP credentials.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Vault {
     pub id: String,
     pub name: String,
@@ -18,7 +17,6 @@ pub struct Vault {
 
 /// Parameters for creating a vault.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateVaultParams {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -27,7 +25,6 @@ pub struct CreateVaultParams {
 
 /// A stored credential within a vault.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Credential {
     pub id: String,
     pub name: String,
@@ -39,7 +36,6 @@ pub struct Credential {
 
 /// Parameters for creating a credential.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateCredentialParams {
     pub name: String,
     pub url: String,
@@ -94,7 +90,6 @@ impl CreateCredentialParams {
 
 /// Parameters for updating a credential.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 pub struct UpdateCredentialParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
@@ -108,7 +103,6 @@ pub struct UpdateCredentialParams {
 
 /// Result of credential validation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CredentialValidation {
     pub valid: bool,
     #[serde(default)]

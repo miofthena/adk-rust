@@ -31,14 +31,14 @@ fn sample_agent_json() -> serde_json::Value {
         "system": "You are helpful.",
         "description": null,
         "tools": [],
-        "mcpServers": [],
+        "mcp_servers": [],
         "skills": [],
-        "permissionPolicy": null,
+        "permission_policy": null,
         "metadata": null,
         "version": 1,
-        "createdAt": "2026-01-15T10:00:00Z",
-        "updatedAt": "2026-01-15T10:00:00Z",
-        "archivedAt": null
+        "created_at": "2026-01-15T10:00:00Z",
+        "updated_at": "2026-01-15T10:00:00Z",
+        "archived_at": null
     })
 }
 
@@ -158,8 +158,8 @@ async fn test_list_agents_without_params() {
 
     let list_response = serde_json::json!({
         "data": [sample_agent_json()],
-        "nextCursor": "cur_xyz",
-        "hasMore": true
+        "next_cursor": "cur_xyz",
+        "has_more": true
     });
 
     Mock::given(method("GET"))
@@ -185,7 +185,7 @@ async fn test_list_agents_with_pagination_params() {
 
     let list_response = serde_json::json!({
         "data": [],
-        "hasMore": false
+        "has_more": false
     });
 
     Mock::given(method("GET"))
@@ -240,7 +240,7 @@ async fn test_archive_agent_posts_to_archive() {
     let client = mock_client(&server.uri());
 
     let mut archived_json = sample_agent_json();
-    archived_json["archivedAt"] = serde_json::json!("2026-01-16T10:00:00Z");
+    archived_json["archived_at"] = serde_json::json!("2026-01-16T10:00:00Z");
 
     Mock::given(method("POST"))
         .and(path("/agents/agt_abc123/archive"))

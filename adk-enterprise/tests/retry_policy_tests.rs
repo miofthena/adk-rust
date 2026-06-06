@@ -32,14 +32,14 @@ fn sample_agent_json() -> serde_json::Value {
         "system": null,
         "description": null,
         "tools": [],
-        "mcpServers": [],
+        "mcp_servers": [],
         "skills": [],
-        "permissionPolicy": null,
+        "permission_policy": null,
         "metadata": null,
         "version": 1,
-        "createdAt": "2026-01-15T10:00:00Z",
-        "updatedAt": "2026-01-15T10:00:00Z",
-        "archivedAt": null
+        "created_at": "2026-01-15T10:00:00Z",
+        "updated_at": "2026-01-15T10:00:00Z",
+        "archived_at": null
     })
 }
 

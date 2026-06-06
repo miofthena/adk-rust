@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 /// A memory store.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MemoryStore {
     pub id: String,
     pub name: String,
@@ -18,7 +17,6 @@ pub struct MemoryStore {
 
 /// Parameters for creating a memory store.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateMemoryStoreParams {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -27,7 +25,6 @@ pub struct CreateMemoryStoreParams {
 
 /// A memory entry within a store.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Memory {
     pub id: String,
     pub store_id: String,
@@ -41,7 +38,6 @@ pub struct Memory {
 
 /// Parameters for creating a memory entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateMemoryParams {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,7 +46,6 @@ pub struct CreateMemoryParams {
 
 /// Parameters for updating a memory entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct UpdateMemoryParams {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -59,7 +54,6 @@ pub struct UpdateMemoryParams {
 
 /// A memory version entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MemoryVersion {
     pub version: u64,
     pub content: String,

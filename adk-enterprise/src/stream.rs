@@ -545,7 +545,7 @@ mod tests {
         let data = r#"{"type":"status.idle","seq":10,"stop_reason":null}"#;
         let event = deserialize_event(data).unwrap();
         match event {
-            SessionEvent::StatusIdle { seq, stop_reason } => {
+            SessionEvent::StatusIdle { seq, stop_reason, .. } => {
                 assert_eq!(seq, 10);
                 assert!(stop_reason.is_none());
             }

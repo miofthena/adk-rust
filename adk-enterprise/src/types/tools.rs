@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// # Wire Format (CANON §3.7)
 ///
 /// Built-in: `{"type": "bash"}` or `{"type": "web_search"}`
-/// Custom: `{"type": "custom", "name": "...", "description": "...", "inputSchema": {...}}`
+/// Custom: `{"type": "custom", "name": "...", "description": "...", "input_schema": {...}}`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 #[non_exhaustive]
@@ -26,7 +26,7 @@ pub enum ToolConfig {
         name: String,
     },
     /// A custom tool defined by the user.
-    #[serde(rename = "custom", rename_all = "camelCase")]
+    #[serde(rename = "custom")]
     Custom {
         /// Tool name (unique within the agent).
         name: String,
@@ -98,11 +98,10 @@ impl ToolConfig {
 ///   "command": "npx",
 ///   "args": ["-y", "@my/mcp-server"],
 ///   "env": {"API_KEY": "..."},
-///   "autoApprove": false
+///   "auto_approve": false
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
 pub struct McpServerConfig {
     /// Unique name for this MCP server.
     pub name: String,
@@ -132,10 +131,9 @@ pub struct McpServerConfig {
 /// # Wire Format (CANON §3.9)
 ///
 /// ```json
-/// { "skillId": "sk_abc123" }
+/// { "skill_id": "sk_abc123" }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
 pub struct SkillRef {
     /// The skill identifier.
     pub skill_id: String,
@@ -151,7 +149,6 @@ pub struct SkillRef {
 /// { "mode": "autoApprove" }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
 pub struct PermissionPolicy {
     /// The permission mode governing tool execution.
     pub mode: PermissionMode,
@@ -211,7 +208,7 @@ mod tests {
                 "type": "custom",
                 "name": "get_weather",
                 "description": "Get weather for a city",
-                "inputSchema": {
+                "input_schema": {
                     "type": "object",
                     "properties": { "city": { "type": "string" } },
                     "required": ["city"]
@@ -279,7 +276,7 @@ mod tests {
                 "command": "npx",
                 "args": ["-y", "@my/mcp-server"],
                 "env": {"API_KEY": "secret"},
-                "autoApprove": false
+                "auto_approve": false
             })
         );
     }
@@ -302,7 +299,7 @@ mod tests {
                 "name": "remote-server",
                 "transport": "sse",
                 "url": "https://mcp.example.com/sse",
-                "autoApprove": true
+                "auto_approve": true
             })
         );
     }
@@ -325,7 +322,7 @@ mod tests {
 
     #[test]
     fn test_mcp_server_deserializes_without_optional_fields() {
-        let wire = r#"{"name":"minimal","transport":"http","autoApprove":false}"#;
+        let wire = r#"{"name":"minimal","transport":"http","auto_approve":false}"#;
         let config: McpServerConfig = serde_json::from_str(wire).unwrap();
         assert_eq!(config.name, "minimal");
         assert_eq!(config.transport, "http");
@@ -339,10 +336,10 @@ mod tests {
     // ─── SkillRef serialization tests ───────────────────────────────
 
     #[test]
-    fn test_skill_ref_serializes_camel_case() {
+    fn test_skill_ref_serializes_snake_case() {
         let skill = SkillRef { skill_id: "sk_abc123".into() };
         let json = serde_json::to_value(&skill).unwrap();
-        assert_eq!(json, json!({"skillId": "sk_abc123"}));
+        assert_eq!(json, json!({"skill_id": "sk_abc123"}));
     }
 
     #[test]
@@ -355,7 +352,7 @@ mod tests {
 
     #[test]
     fn test_skill_ref_deserializes_from_wire() {
-        let wire = r#"{"skillId":"sk_prod_789"}"#;
+        let wire = r#"{"skill_id":"sk_prod_789"}"#;
         let skill: SkillRef = serde_json::from_str(wire).unwrap();
         assert_eq!(skill.skill_id, "sk_prod_789");
     }

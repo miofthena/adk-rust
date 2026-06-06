@@ -348,10 +348,10 @@ mod tests {
             metadata: None,
         };
         let json = serde_json::to_value(&params).unwrap();
-        assert_eq!(json["agentId"], "agt_123");
-        assert_eq!(json["environmentId"], "env_456");
+        assert_eq!(json["agent_id"], "agt_123");
+        assert_eq!(json["environment_id"], "env_456");
         assert_eq!(json["title"], "Test Session");
-        assert_eq!(json["vaultIds"], serde_json::json!(["vault_789"]));
+        assert_eq!(json["vault_ids"], serde_json::json!(["vault_789"]));
         // metadata is None + skip_serializing_if, so absent
         assert!(json.get("metadata").is_none());
     }
@@ -360,11 +360,11 @@ mod tests {
     fn test_create_session_params_minimal_serialization() {
         let params = CreateSessionParams { agent_id: "agt_123".into(), ..Default::default() };
         let json = serde_json::to_value(&params).unwrap();
-        assert_eq!(json["agentId"], "agt_123");
+        assert_eq!(json["agent_id"], "agt_123");
         // Optional/empty fields should not appear
-        assert!(json.get("environmentId").is_none());
+        assert!(json.get("environment_id").is_none());
         assert!(json.get("title").is_none());
-        assert!(json.get("vaultIds").is_none());
+        assert!(json.get("vault_ids").is_none());
         assert!(json.get("metadata").is_none());
     }
 
@@ -372,17 +372,18 @@ mod tests {
     fn test_session_deserialization() {
         let json = serde_json::json!({
             "id": "ses_abc123",
-            "agentId": "agt_xyz",
-            "environmentId": "env_456",
+            "agent_id": "agt_xyz",
+            "environment_id": "env_456",
             "status": "idle",
             "title": "My Session",
             "usage": {
-                "inputTokens": 100,
-                "outputTokens": 50,
-                "costUsd": 0.002
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "total_tokens": 150,
+                "cost_usd": 0.002
             },
-            "createdAt": "2026-06-01T00:00:00Z",
-            "updatedAt": "2026-06-01T01:00:00Z"
+            "created_at": "2026-06-01T00:00:00Z",
+            "updated_at": "2026-06-01T01:00:00Z"
         });
         let session: Session = serde_json::from_value(json).unwrap();
         assert_eq!(session.id, "ses_abc123");
@@ -400,10 +401,10 @@ mod tests {
     fn test_session_deserialization_minimal() {
         let json = serde_json::json!({
             "id": "ses_001",
-            "agentId": "agt_001",
+            "agent_id": "agt_001",
             "status": "queued",
-            "createdAt": "2026-06-01T00:00:00Z",
-            "updatedAt": "2026-06-01T00:00:00Z"
+            "created_at": "2026-06-01T00:00:00Z",
+            "updated_at": "2026-06-01T00:00:00Z"
         });
         let session: Session = serde_json::from_value(json).unwrap();
         assert_eq!(session.id, "ses_001");
@@ -439,21 +440,21 @@ mod tests {
             "data": [
                 {
                     "id": "ses_001",
-                    "agentId": "agt_001",
+                    "agent_id": "agt_001",
                     "status": "idle",
-                    "createdAt": "2026-06-01T00:00:00Z",
-                    "updatedAt": "2026-06-01T00:00:00Z"
+                    "created_at": "2026-06-01T00:00:00Z",
+                    "updated_at": "2026-06-01T00:00:00Z"
                 },
                 {
                     "id": "ses_002",
-                    "agentId": "agt_001",
+                    "agent_id": "agt_001",
                     "status": "paused",
-                    "createdAt": "2026-06-01T00:00:00Z",
-                    "updatedAt": "2026-06-01T00:00:00Z"
+                    "created_at": "2026-06-01T00:00:00Z",
+                    "updated_at": "2026-06-01T00:00:00Z"
                 }
             ],
-            "nextCursor": "cursor_abc",
-            "hasMore": true
+            "next_cursor": "cursor_abc",
+            "has_more": true
         });
         let list: ListResponse<Session> = serde_json::from_value(json).unwrap();
         assert_eq!(list.data.len(), 2);
@@ -467,7 +468,7 @@ mod tests {
     fn test_list_response_empty() {
         let json = serde_json::json!({
             "data": [],
-            "hasMore": false
+            "has_more": false
         });
         let list: ListResponse<Session> = serde_json::from_value(json).unwrap();
         assert!(list.data.is_empty());

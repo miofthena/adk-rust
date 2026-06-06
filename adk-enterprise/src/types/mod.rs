@@ -1,8 +1,9 @@
 //! Wire types for the Enterprise Managed Agent Service.
 //!
 //! These types are self-contained copies of the CANON wire format.
-//! They serialize/deserialize with `#[serde(rename_all = "camelCase")]`
-//! and use `#[serde(default)]` on optional response fields for forward compatibility.
+//! They serialize/deserialize using Rust's native snake_case field names,
+//! matching the server's wire format. Enum variants that require case
+//! conversion retain `#[serde(rename_all = "camelCase")]` (e.g., PermissionMode).
 
 pub mod agent;
 pub mod environment;

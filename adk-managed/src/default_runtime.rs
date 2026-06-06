@@ -120,7 +120,7 @@ pub(crate) struct ActiveSession {
 /// .with_memory(my_memory_service);
 /// ```
 pub struct DefaultManagedAgentRuntime {
-    /// Resolves ModelRef → Arc<dyn Llm>.
+    /// Resolves ModelRef → `Arc<dyn Llm>`.
     model_resolver: Arc<dyn ModelResolver>,
     /// Persistent session storage.
     session_service: Arc<dyn SessionService>,

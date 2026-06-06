@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::session::Usage;
+
 /// A client-to-agent event.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -15,25 +17,30 @@ pub enum UserEvent {
     #[serde(rename = "user.interrupt")]
     Interrupt,
 
-    /// Allow a pending tool use.
+    /// Allow or deny a pending tool use.
     #[serde(rename = "user.tool_confirmation")]
-    ToolConfirmation { tool_use_id: String, action: ToolConfirmationAction },
+    ToolConfirmation {
+        tool_use_id: String,
+        result: ConfirmationResult,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        deny_message: Option<String>,
+    },
 
     /// Provide a custom tool result.
     #[serde(rename = "user.custom_tool_result")]
-    CustomToolResult { tool_use_id: String, content: String },
+    CustomToolResult { custom_tool_use_id: String, content: Vec<ContentBlock> },
 
     /// Define an outcome for the session.
     #[serde(rename = "user.define_outcome")]
     DefineOutcome { criteria: String },
 }
 
-/// Tool confirmation action (allow or deny).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ToolConfirmationAction {
+/// Confirmation result for tool use (allow or deny).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConfirmationResult {
     Allow,
-    Deny { reason: Option<String> },
+    Deny,
 }
 
 impl UserEvent {
@@ -51,7 +58,8 @@ impl UserEvent {
     pub fn allow_tool(tool_use_id: impl Into<String>) -> Self {
         Self::ToolConfirmation {
             tool_use_id: tool_use_id.into(),
-            action: ToolConfirmationAction::Allow,
+            result: ConfirmationResult::Allow,
+            deny_message: None,
         }
     }
 
@@ -59,13 +67,17 @@ impl UserEvent {
     pub fn deny_tool(tool_use_id: impl Into<String>, reason: impl Into<String>) -> Self {
         Self::ToolConfirmation {
             tool_use_id: tool_use_id.into(),
-            action: ToolConfirmationAction::Deny { reason: Some(reason.into()) },
+            result: ConfirmationResult::Deny,
+            deny_message: Some(reason.into()),
         }
     }
 
-    /// Create a `user.custom_tool_result` event with the tool use ID and content.
-    pub fn custom_tool_result(tool_use_id: impl Into<String>, content: impl Into<String>) -> Self {
-        Self::CustomToolResult { tool_use_id: tool_use_id.into(), content: content.into() }
+    /// Create a `user.custom_tool_result` event with the tool use ID and content blocks.
+    pub fn custom_tool_result(
+        custom_tool_use_id: impl Into<String>,
+        content: Vec<ContentBlock>,
+    ) -> Self {
+        Self::CustomToolResult { custom_tool_use_id: custom_tool_use_id.into(), content }
     }
 
     /// Create a `user.define_outcome` event with the given success criteria.
@@ -107,7 +119,13 @@ pub enum SessionEvent {
 
     /// Session status changed to idle (turn ended).
     #[serde(rename = "status.idle")]
-    StatusIdle { seq: u64, stop_reason: Option<StopReason> },
+    StatusIdle {
+        seq: u64,
+        #[serde(default)]
+        stop_reason: Option<StopReason>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usage: Option<Usage>,
+    },
 
     /// Session status changed to running.
     #[serde(rename = "status.running")]
@@ -162,7 +180,6 @@ impl ContentBlock {
 
 /// A stored event from the event history.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct StoredEvent {
     pub seq: u64,
     pub direction: EventDirection,
@@ -172,7 +189,7 @@ pub struct StoredEvent {
 
 /// Direction of a stored event.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "lowercase")]
 pub enum EventDirection {
     User,
     Agent,

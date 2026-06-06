@@ -12,7 +12,7 @@
 //! - [`ToolParkingLot`] — parks on `custom_tool_use` until client delivers a result
 //! - [`CheckpointManager`] — atomic checkpoint after each event
 //! - `tokio::broadcast` — fan-out to stream subscribers
-//! - [`Runner`](adk_runner::Runner) — drives the agent through the real LLM
+//! - [`Runner`] — drives the agent through the real LLM
 //! - [`SessionUsageTracker`] — tracks per-turn and cumulative token usage
 //!
 //! # Control Flow

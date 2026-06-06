@@ -5,7 +5,7 @@
 //!
 //! - Model (`Arc<dyn Llm>`) + system prompt → `LlmAgentBuilder`
 //! - Built-in tool declarations → in-process tool implementations
-//! - Custom tools → [`ManagedCustomTool`] wrappers (park via [`ToolParkingLot`])
+//! - Custom tools → [`ManagedCustomTool`] wrappers (park via `ToolParkingLot`)
 //! - Permission policy → `ToolConfirmationPolicy`
 //! - Description → agent description
 //!

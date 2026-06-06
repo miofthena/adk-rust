@@ -7,7 +7,7 @@
 //! # How It Works
 //!
 //! The managed runtime delegates schema normalization to each provider's
-//! [`SchemaAdapter`](adk_core::SchemaAdapter) implementation in `adk-model`:
+//! [`SchemaAdapter`] implementation in `adk-model`:
 //!
 //! - **Gemini**: Uses `GenericSchemaAdapter` — strips `$schema`, handles
 //!   `additionalProperties` per Gemini's requirements.

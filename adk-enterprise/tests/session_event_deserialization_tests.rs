@@ -131,9 +131,10 @@ fn test_session_event_status_idle_with_end_turn() {
 
     let event: SessionEvent = serde_json::from_value(json).unwrap();
     match event {
-        SessionEvent::StatusIdle { seq, stop_reason } => {
+        SessionEvent::StatusIdle { seq, stop_reason, usage } => {
             assert_eq!(seq, 10);
             assert_eq!(stop_reason, Some(StopReason::EndTurn));
+            assert!(usage.is_none());
         }
         _ => panic!("expected StatusIdle variant"),
     }
@@ -152,7 +153,7 @@ fn test_session_event_status_idle_with_requires_action() {
 
     let event: SessionEvent = serde_json::from_value(json).unwrap();
     match event {
-        SessionEvent::StatusIdle { seq, stop_reason } => {
+        SessionEvent::StatusIdle { seq, stop_reason, .. } => {
             assert_eq!(seq, 11);
             match stop_reason {
                 Some(StopReason::RequiresAction { event_ids }) => {
@@ -175,7 +176,7 @@ fn test_session_event_status_idle_with_max_tokens() {
 
     let event: SessionEvent = serde_json::from_value(json).unwrap();
     match event {
-        SessionEvent::StatusIdle { seq, stop_reason } => {
+        SessionEvent::StatusIdle { seq, stop_reason, .. } => {
             assert_eq!(seq, 12);
             assert_eq!(stop_reason, Some(StopReason::MaxTokens));
         }
@@ -193,9 +194,10 @@ fn test_session_event_status_idle_no_stop_reason() {
 
     let event: SessionEvent = serde_json::from_value(json).unwrap();
     match event {
-        SessionEvent::StatusIdle { seq, stop_reason } => {
+        SessionEvent::StatusIdle { seq, stop_reason, usage } => {
             assert_eq!(seq, 13);
             assert_eq!(stop_reason, None);
+            assert!(usage.is_none());
         }
         _ => panic!("expected StatusIdle variant"),
     }

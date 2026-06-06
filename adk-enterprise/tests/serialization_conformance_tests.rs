@@ -4,7 +4,7 @@
 //! tested in `user_event_serialization_tests.rs` and
 //! `session_event_deserialization_tests.rs`:
 //!
-//! 1. Agent/CreateAgentParams serialization (camelCase, skip_serializing_if)
+//! 1. Agent/CreateAgentParams serialization (snake_case, skip_serializing_if)
 //! 2. Environment/CreateEnvironmentParams serialization
 //! 3. Session/CreateSessionParams serialization
 //! 4. ListResponse deserialization (with/without next_cursor)
@@ -32,7 +32,7 @@ use serde_json::json;
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn create_agent_params_minimal_uses_camel_case() {
+fn create_agent_params_minimal_uses_snake_case() {
     let params = CreateAgentParams {
         name: "My Agent".into(),
         model: "gemini-2.5-flash".into(),
@@ -40,24 +40,24 @@ fn create_agent_params_minimal_uses_camel_case() {
     };
     let json = serde_json::to_value(&params).unwrap();
 
-    // Required fields present with camelCase
+    // Required fields present with snake_case
     assert_eq!(json["name"], "My Agent");
     assert_eq!(json["model"], "gemini-2.5-flash");
 
     // Optional None fields are skipped
     assert!(json.get("system").is_none());
     assert!(json.get("description").is_none());
-    assert!(json.get("permissionPolicy").is_none());
+    assert!(json.get("permission_policy").is_none());
     assert!(json.get("metadata").is_none());
 
     // Empty vecs are skipped
     assert!(json.get("tools").is_none());
-    assert!(json.get("mcpServers").is_none());
+    assert!(json.get("mcp_servers").is_none());
     assert!(json.get("skills").is_none());
 }
 
 #[test]
-fn create_agent_params_full_uses_camel_case() {
+fn create_agent_params_full_uses_snake_case() {
     let params = CreateAgentParams {
         name: "Full Agent".into(),
         model: ModelRef::structured(Provider::Openai, "gpt-4.1"),
@@ -74,14 +74,14 @@ fn create_agent_params_full_uses_camel_case() {
     assert_eq!(json["name"], "Full Agent");
     assert_eq!(json["system"], "You are helpful.");
     assert_eq!(json["description"], "A full agent");
-    // camelCase for nested structs
-    assert_eq!(json["permissionPolicy"]["mode"], "autoApprove");
+    // permission_policy snake_case
+    assert_eq!(json["permission_policy"]["mode"], "autoApprove");
     assert_eq!(json["metadata"]["env"], "prod");
     // tools present (non-empty)
     assert_eq!(json["tools"][0]["type"], "builtin");
     assert_eq!(json["tools"][0]["name"], "bash");
-    // mcpServers and skills are empty → skipped
-    assert!(json.get("mcpServers").is_none());
+    // mcp_servers and skills are empty → skipped
+    assert!(json.get("mcp_servers").is_none());
     assert!(json.get("skills").is_none());
 }
 
@@ -95,9 +95,9 @@ fn update_agent_params_skips_none_fields() {
     assert!(json.get("system").is_none());
     assert!(json.get("description").is_none());
     assert!(json.get("tools").is_none());
-    assert!(json.get("mcpServers").is_none());
+    assert!(json.get("mcp_servers").is_none());
     assert!(json.get("skills").is_none());
-    assert!(json.get("permissionPolicy").is_none());
+    assert!(json.get("permission_policy").is_none());
     assert!(json.get("metadata").is_none());
 }
 
@@ -111,16 +111,16 @@ fn agent_response_deserializes_from_api_json() {
         "description": null,
         "tools": [
             {"type": "builtin", "name": "bash"},
-            {"type": "custom", "name": "calc", "description": "Calculate math", "inputSchema": {"type": "object"}}
+            {"type": "custom", "name": "calc", "description": "Calculate math", "input_schema": {"type": "object"}}
         ],
-        "mcpServers": [],
-        "skills": [{"skillId": "sk_001"}],
-        "permissionPolicy": {"mode": "prompt"},
+        "mcp_servers": [],
+        "skills": [{"skill_id": "sk_001"}],
+        "permission_policy": {"mode": "autoApprove"},
         "metadata": {"team": "platform"},
         "version": 3,
-        "createdAt": "2026-01-15T10:00:00Z",
-        "updatedAt": "2026-01-15T12:00:00Z",
-        "archivedAt": null
+        "created_at": "2026-01-15T10:00:00Z",
+        "updated_at": "2026-01-15T12:00:00Z",
+        "archived_at": null
     });
 
     let agent: Agent = serde_json::from_value(api_response).unwrap();
@@ -131,19 +131,21 @@ fn agent_response_deserializes_from_api_json() {
     assert_eq!(agent.skills.len(), 1);
     assert_eq!(agent.description, None);
     assert_eq!(agent.archived_at, None);
-    assert_eq!(agent.permission_policy, Some(PermissionPolicy { mode: PermissionMode::Prompt }));
+    assert_eq!(
+        agent.permission_policy,
+        Some(PermissionPolicy { mode: PermissionMode::AutoApprove })
+    );
 }
 
 #[test]
 fn agent_response_deserializes_with_missing_optional_fields() {
-    // Simulates forward-compat: server returns new optional fields we don't know about
     let minimal_response = json!({
         "id": "agt_min",
         "name": "Minimal",
         "model": "gpt-4.1",
         "version": 1,
-        "createdAt": "2026-01-01T00:00:00Z",
-        "updatedAt": "2026-01-01T00:00:00Z"
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z"
     });
 
     let agent: Agent = serde_json::from_value(minimal_response).unwrap();
@@ -174,17 +176,17 @@ fn create_environment_params_minimal_skips_none() {
 
     assert_eq!(json["name"], "dev-env");
     assert!(json.get("description").is_none());
-    assert!(json.get("environmentType").is_none());
+    assert!(json.get("environment_type").is_none());
     assert!(json.get("config").is_none());
 }
 
 #[test]
-fn create_environment_params_cloud_uses_camel_case() {
+fn create_environment_params_cloud_uses_snake_case() {
     let params = CreateEnvironmentParams::cloud("production");
     let json = serde_json::to_value(&params).unwrap();
 
     assert_eq!(json["name"], "production");
-    assert_eq!(json["environmentType"], "cloud");
+    assert_eq!(json["environment_type"], "cloud");
     assert!(json["config"].is_object());
 }
 
@@ -194,7 +196,7 @@ fn create_environment_params_self_hosted() {
     let json = serde_json::to_value(&params).unwrap();
 
     assert_eq!(json["name"], "on-prem");
-    assert_eq!(json["environmentType"], "self_hosted");
+    assert_eq!(json["environment_type"], "self_hosted");
 }
 
 #[test]
@@ -203,11 +205,11 @@ fn environment_response_deserializes_from_api() {
         "id": "env_xyz",
         "name": "staging",
         "description": "Staging sandbox",
-        "environmentType": "cloud",
+        "environment_type": "cloud",
         "config": {"type": "cloud", "networking": {"type": "unrestricted"}},
-        "createdAt": "2026-02-01T00:00:00Z",
-        "updatedAt": "2026-02-01T00:00:00Z",
-        "archivedAt": null
+        "created_at": "2026-02-01T00:00:00Z",
+        "updated_at": "2026-02-01T00:00:00Z",
+        "archived_at": null
     });
 
     let env: Environment = serde_json::from_value(api_response).unwrap();
@@ -224,8 +226,8 @@ fn environment_response_deserializes_without_optional_fields() {
     let minimal = json!({
         "id": "env_min",
         "name": "basic",
-        "createdAt": "2026-01-01T00:00:00Z",
-        "updatedAt": "2026-01-01T00:00:00Z"
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z"
     });
 
     let env: Environment = serde_json::from_value(minimal).unwrap();
@@ -245,15 +247,15 @@ fn create_session_params_minimal_skips_optional() {
     let params = CreateSessionParams { agent_id: "agt_123".into(), ..Default::default() };
     let json = serde_json::to_value(&params).unwrap();
 
-    assert_eq!(json["agentId"], "agt_123");
-    assert!(json.get("environmentId").is_none());
+    assert_eq!(json["agent_id"], "agt_123");
+    assert!(json.get("environment_id").is_none());
     assert!(json.get("title").is_none());
-    assert!(json.get("vaultIds").is_none());
+    assert!(json.get("vault_ids").is_none());
     assert!(json.get("metadata").is_none());
 }
 
 #[test]
-fn create_session_params_full_uses_camel_case() {
+fn create_session_params_full_uses_snake_case() {
     let params = CreateSessionParams {
         agent_id: "agt_abc".into(),
         environment_id: Some("env_xyz".into()),
@@ -263,10 +265,10 @@ fn create_session_params_full_uses_camel_case() {
     };
     let json = serde_json::to_value(&params).unwrap();
 
-    assert_eq!(json["agentId"], "agt_abc");
-    assert_eq!(json["environmentId"], "env_xyz");
+    assert_eq!(json["agent_id"], "agt_abc");
+    assert_eq!(json["environment_id"], "env_xyz");
     assert_eq!(json["title"], "My Chat");
-    assert_eq!(json["vaultIds"], json!(["vault_1", "vault_2"]));
+    assert_eq!(json["vault_ids"], json!(["vault_1", "vault_2"]));
     assert_eq!(json["metadata"]["source"], "api");
 }
 
@@ -274,17 +276,18 @@ fn create_session_params_full_uses_camel_case() {
 fn session_response_deserializes_from_api() {
     let api_response = json!({
         "id": "ses_abc123",
-        "agentId": "agt_001",
-        "environmentId": "env_001",
+        "agent_id": "agt_001",
+        "environment_id": "env_001",
         "status": "running",
         "title": "Debug session",
         "usage": {
-            "inputTokens": 1500,
-            "outputTokens": 800,
-            "costUsd": 0.0035
+            "input_tokens": 1500,
+            "output_tokens": 800,
+            "total_tokens": 2300,
+            "cost_usd": 0.0035
         },
-        "createdAt": "2026-03-01T10:00:00Z",
-        "updatedAt": "2026-03-01T10:05:00Z"
+        "created_at": "2026-03-01T10:00:00Z",
+        "updated_at": "2026-03-01T10:05:00Z"
     });
 
     let session: Session = serde_json::from_value(api_response).unwrap();
@@ -296,6 +299,7 @@ fn session_response_deserializes_from_api() {
     let usage = session.usage.unwrap();
     assert_eq!(usage.input_tokens, 1500);
     assert_eq!(usage.output_tokens, 800);
+    assert_eq!(usage.total_tokens, 2300);
     assert_eq!(usage.cost_usd, Some(0.0035));
 }
 
@@ -303,10 +307,10 @@ fn session_response_deserializes_from_api() {
 fn session_response_deserializes_without_optional_fields() {
     let minimal = json!({
         "id": "ses_min",
-        "agentId": "agt_min",
+        "agent_id": "agt_min",
         "status": "idle",
-        "createdAt": "2026-01-01T00:00:00Z",
-        "updatedAt": "2026-01-01T00:00:00Z"
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z"
     });
 
     let session: Session = serde_json::from_value(minimal).unwrap();
@@ -339,24 +343,28 @@ fn session_status_all_variants_serialize_camel_case() {
 }
 
 #[test]
-fn usage_serializes_camel_case() {
-    let usage = Usage { input_tokens: 100, output_tokens: 50, cost_usd: Some(0.001) };
+fn usage_serializes_snake_case() {
+    let usage =
+        Usage { input_tokens: 100, output_tokens: 50, total_tokens: 150, cost_usd: Some(0.001) };
     let json = serde_json::to_value(&usage).unwrap();
 
-    assert_eq!(json["inputTokens"], 100);
-    assert_eq!(json["outputTokens"], 50);
-    assert_eq!(json["costUsd"], 0.001);
+    assert_eq!(json["input_tokens"], 100);
+    assert_eq!(json["output_tokens"], 50);
+    assert_eq!(json["total_tokens"], 150);
+    assert_eq!(json["cost_usd"], 0.001);
 }
 
 #[test]
 fn usage_without_cost_deserializes() {
     let wire = json!({
-        "inputTokens": 200,
-        "outputTokens": 100
+        "input_tokens": 200,
+        "output_tokens": 100,
+        "total_tokens": 300
     });
     let usage: Usage = serde_json::from_value(wire).unwrap();
     assert_eq!(usage.input_tokens, 200);
     assert_eq!(usage.output_tokens, 100);
+    assert_eq!(usage.total_tokens, 300);
     assert_eq!(usage.cost_usd, None);
 }
 
@@ -368,11 +376,11 @@ fn usage_without_cost_deserializes() {
 fn list_response_with_next_cursor() {
     let wire = json!({
         "data": [
-            {"id": "agt_1", "name": "Agent 1", "model": "gemini-2.5-flash", "version": 1, "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"},
-            {"id": "agt_2", "name": "Agent 2", "model": "gpt-4.1", "version": 1, "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"}
+            {"id": "agt_1", "name": "Agent 1", "model": "gemini-2.5-flash", "version": 1, "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"},
+            {"id": "agt_2", "name": "Agent 2", "model": "gpt-4.1", "version": 1, "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}
         ],
-        "nextCursor": "cursor_abc123",
-        "hasMore": true
+        "next_cursor": "cursor_abc123",
+        "has_more": true
     });
 
     let response: ListResponse<Agent> = serde_json::from_value(wire).unwrap();
@@ -385,9 +393,9 @@ fn list_response_with_next_cursor() {
 fn list_response_without_next_cursor() {
     let wire = json!({
         "data": [
-            {"id": "ses_1", "agentId": "agt_1", "status": "idle", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"}
+            {"id": "ses_1", "agent_id": "agt_1", "status": "idle", "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}
         ],
-        "hasMore": false
+        "has_more": false
     });
 
     let response: ListResponse<Session> = serde_json::from_value(wire).unwrap();
@@ -400,7 +408,7 @@ fn list_response_without_next_cursor() {
 fn list_response_empty_data() {
     let wire = json!({
         "data": [],
-        "hasMore": false
+        "has_more": false
     });
 
     let response: ListResponse<Agent> = serde_json::from_value(wire).unwrap();
@@ -413,8 +421,8 @@ fn list_response_empty_data() {
 fn list_response_with_null_next_cursor() {
     let wire = json!({
         "data": [],
-        "nextCursor": null,
-        "hasMore": false
+        "next_cursor": null,
+        "has_more": false
     });
 
     let response: ListResponse<Agent> = serde_json::from_value(wire).unwrap();
@@ -422,7 +430,7 @@ fn list_response_with_null_next_cursor() {
 }
 
 #[test]
-fn list_response_serializes_camel_case() {
+fn list_response_serializes_snake_case() {
     let response = ListResponse {
         data: vec!["item1".to_string(), "item2".to_string()],
         next_cursor: Some("cur_next".to_string()),
@@ -431,8 +439,8 @@ fn list_response_serializes_camel_case() {
     let json = serde_json::to_value(&response).unwrap();
 
     assert_eq!(json["data"], json!(["item1", "item2"]));
-    assert_eq!(json["nextCursor"], "cur_next");
-    assert_eq!(json["hasMore"], true);
+    assert_eq!(json["next_cursor"], "cur_next");
+    assert_eq!(json["has_more"], true);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -463,7 +471,7 @@ fn tool_config_custom_wire_shape_with_input_schema() {
     assert_eq!(json["type"], "custom");
     assert_eq!(json["name"], "search_docs");
     assert_eq!(json["description"], "Search documentation");
-    assert_eq!(json["inputSchema"], schema);
+    assert_eq!(json["input_schema"], schema);
 }
 
 #[test]
@@ -486,7 +494,7 @@ fn tool_config_builtin_round_trip_from_wire() {
 
 #[test]
 fn tool_config_custom_round_trip_from_wire() {
-    let wire = r#"{"type":"custom","name":"my_tool","description":"Does stuff","inputSchema":{"type":"object"}}"#;
+    let wire = r#"{"type":"custom","name":"my_tool","description":"Does stuff","input_schema":{"type":"object"}}"#;
     let tool: ToolConfig = serde_json::from_str(wire).unwrap();
     let reserialized = serde_json::to_string(&tool).unwrap();
     let re_deserialized: ToolConfig = serde_json::from_str(&reserialized).unwrap();
@@ -540,7 +548,7 @@ fn permission_policy_deserializes_from_api_wire() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn create_vault_params_serializes_camel_case() {
+fn create_vault_params_serializes_snake_case() {
     let params = CreateVaultParams {
         name: "User Creds".into(),
         description: Some("OAuth credentials".into()),
@@ -566,9 +574,9 @@ fn vault_response_deserializes_from_api() {
         "id": "vault_abc",
         "name": "My Vault",
         "description": "Stores creds",
-        "createdAt": "2026-01-01T00:00:00Z",
-        "updatedAt": "2026-01-01T00:00:00Z",
-        "archivedAt": null
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+        "archived_at": null
     });
 
     let vault: Vault = serde_json::from_value(wire).unwrap();
@@ -589,12 +597,12 @@ fn create_credential_static_bearer_wire_shape() {
 
     assert_eq!(json["name"], "GitHub Token");
     assert_eq!(json["url"], "https://api.github.com");
-    assert_eq!(json["credentialType"], "static_bearer");
+    assert_eq!(json["credential_type"], "static_bearer");
     assert_eq!(json["token"], "ghp_xxxxx");
     // OAuth fields not present
-    assert!(json.get("accessToken").is_none());
-    assert!(json.get("expiresAt").is_none());
-    assert!(json.get("refreshToken").is_none());
+    assert!(json.get("access_token").is_none());
+    assert!(json.get("expires_at").is_none());
+    assert!(json.get("refresh_token").is_none());
 }
 
 #[test]
@@ -610,10 +618,10 @@ fn create_credential_mcp_oauth_wire_shape() {
 
     assert_eq!(json["name"], "Slack OAuth");
     assert_eq!(json["url"], "https://slack.com/api");
-    assert_eq!(json["credentialType"], "mcp_oauth");
-    assert_eq!(json["accessToken"], "xoxb-token");
-    assert_eq!(json["expiresAt"], "2026-12-31T23:59:59Z");
-    assert_eq!(json["refreshToken"], "refresh_xyz");
+    assert_eq!(json["credential_type"], "mcp_oauth");
+    assert_eq!(json["access_token"], "xoxb-token");
+    assert_eq!(json["expires_at"], "2026-12-31T23:59:59Z");
+    assert_eq!(json["refresh_token"], "refresh_xyz");
     // Static bearer field not present
     assert!(json.get("token").is_none());
 }
@@ -624,9 +632,9 @@ fn credential_response_deserializes_from_api() {
         "id": "cred_001",
         "name": "My Token",
         "url": "https://api.example.com",
-        "credentialType": "static_bearer",
-        "createdAt": "2026-01-01T00:00:00Z",
-        "updatedAt": "2026-01-01T00:00:00Z"
+        "credential_type": "static_bearer",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z"
     });
 
     let cred: Credential = serde_json::from_value(wire).unwrap();
@@ -641,9 +649,9 @@ fn update_credential_params_skips_none_fields() {
     let json = serde_json::to_value(&params).unwrap();
 
     assert_eq!(json["token"], "new_token");
-    assert!(json.get("accessToken").is_none());
-    assert!(json.get("expiresAt").is_none());
-    assert!(json.get("refreshToken").is_none());
+    assert!(json.get("access_token").is_none());
+    assert!(json.get("expires_at").is_none());
+    assert!(json.get("refresh_token").is_none());
 }
 
 #[test]
@@ -673,8 +681,8 @@ fn memory_store_response_deserializes_from_api() {
         "id": "ms_001",
         "name": "Main Store",
         "description": "Primary memory",
-        "createdAt": "2026-01-01T00:00:00Z",
-        "updatedAt": "2026-01-01T00:00:00Z"
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z"
     });
 
     let store: MemoryStore = serde_json::from_value(wire).unwrap();
@@ -708,12 +716,12 @@ fn create_memory_params_skips_none_metadata() {
 fn memory_response_deserializes_from_api() {
     let wire = json!({
         "id": "mem_001",
-        "storeId": "ms_001",
+        "store_id": "ms_001",
         "content": "User prefers concise responses",
         "metadata": {"session": "ses_abc"},
         "version": 2,
-        "createdAt": "2026-01-01T00:00:00Z",
-        "updatedAt": "2026-01-02T00:00:00Z"
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-02T00:00:00Z"
     });
 
     let memory: Memory = serde_json::from_value(wire).unwrap();
@@ -741,7 +749,7 @@ fn memory_version_deserializes_from_api() {
     let wire = json!({
         "version": 3,
         "content": "Third revision of memory",
-        "createdAt": "2026-01-03T00:00:00Z"
+        "created_at": "2026-01-03T00:00:00Z"
     });
 
     let version: MemoryVersion = serde_json::from_value(wire).unwrap();

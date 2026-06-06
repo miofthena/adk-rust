@@ -110,7 +110,7 @@ pub struct EnvironmentConfig {
 ///
 /// # Implementors
 ///
-/// - [`DefaultManagedAgentRuntime`](future) — the default implementation
+/// - `DefaultManagedAgentRuntime` — the default implementation
 ///   composed from `Runner` + pluggable `SessionService` + optional sandbox/memory.
 ///
 /// # Design Notes

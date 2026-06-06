@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 /// An execution environment (sandbox) as returned by the API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Environment {
     pub id: String,
     pub name: String,
@@ -22,7 +21,6 @@ pub struct Environment {
 
 /// Parameters for creating a new environment.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateEnvironmentParams {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]

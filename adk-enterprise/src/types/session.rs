@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 /// A session as returned by the API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Session {
     pub id: String,
     pub agent_id: String,
@@ -34,17 +33,17 @@ pub enum SessionStatus {
 
 /// Token usage and cost for a session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    #[serde(default)]
+    pub total_tokens: u64,
     #[serde(default)]
     pub cost_usd: Option<f64>,
 }
 
 /// Parameters for creating a session with full control.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateSessionParams {
     pub agent_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]

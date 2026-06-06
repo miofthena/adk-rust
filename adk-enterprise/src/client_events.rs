@@ -135,17 +135,20 @@ impl EnterpriseClient {
     /// # Example
     ///
     /// ```rust,ignore
+    /// use adk_enterprise::ContentBlock;
+    ///
     /// // Agent requested get_weather tool...
-    /// let result = "22°C, sunny in Tokyo";
+    /// let result = vec![ContentBlock::text("22°C, sunny in Tokyo")];
     /// client.custom_tool_result("ses_abc123", "ctu_xyz789", result).await?;
     /// ```
     pub async fn custom_tool_result(
         &self,
         session_id: &str,
-        tool_use_id: &str,
-        content: impl Into<String>,
+        custom_tool_use_id: &str,
+        content: Vec<crate::types::events::ContentBlock>,
     ) -> Result<()> {
-        self.send_event(session_id, UserEvent::custom_tool_result(tool_use_id, content)).await
+        self.send_event(session_id, UserEvent::custom_tool_result(custom_tool_use_id, content))
+            .await
     }
 
     /// Define success criteria for the session outcome.
@@ -241,7 +244,7 @@ fn build_events_query_params(params: Option<&ListParams>) -> Vec<(String, String
 
 #[cfg(test)]
 mod tests {
-    use crate::types::events::UserEvent;
+    use crate::types::events::{ContentBlock, UserEvent};
 
     #[test]
     fn test_user_event_message_serialization() {
@@ -264,6 +267,7 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains(r#""type":"user.tool_confirmation""#));
         assert!(json.contains(r#""tool_use_id":"tu_123""#));
+        assert!(json.contains(r#""result":"allow""#));
     }
 
     #[test]
@@ -272,16 +276,16 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains(r#""type":"user.tool_confirmation""#));
         assert!(json.contains(r#""tool_use_id":"tu_456""#));
-        assert!(json.contains(r#""reason":"Not safe to execute""#));
+        assert!(json.contains(r#""result":"deny""#));
+        assert!(json.contains(r#""deny_message":"Not safe to execute""#));
     }
 
     #[test]
     fn test_user_event_custom_tool_result_serialization() {
-        let event = UserEvent::custom_tool_result("ctu_789", "42°C, hot");
+        let event = UserEvent::custom_tool_result("ctu_789", vec![ContentBlock::text("42°C, hot")]);
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains(r#""type":"user.custom_tool_result""#));
-        assert!(json.contains(r#""tool_use_id":"ctu_789""#));
-        assert!(json.contains(r#""content":"42°C, hot""#));
+        assert!(json.contains(r#""custom_tool_use_id":"ctu_789""#));
     }
 
     #[test]

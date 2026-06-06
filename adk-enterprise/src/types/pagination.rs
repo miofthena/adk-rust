@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 /// Cursor-paginated list response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ListResponse<T> {
     pub data: Vec<T>,
     #[serde(default)]

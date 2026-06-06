@@ -3,7 +3,7 @@
 //! This module provides the [`UsageReport`] type that normalizes token usage
 //! from all LLM providers into a consistent format. After each turn, the
 //! session loop extracts `input_tokens` and `output_tokens` from the
-//! [`UsageMetadata`](adk_core::UsageMetadata) in the LLM response and produces
+//! [`UsageMetadata`] in the LLM response and produces
 //! a uniform `UsageReport`.
 //!
 //! # Provider Parity (Requirement 5.3)

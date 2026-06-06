@@ -56,7 +56,7 @@ async fn test_single_event_parsing() {
 
     assert_eq!(events.len(), 2);
     assert!(matches!(events[0], SessionEvent::StatusRunning { seq: 1 }));
-    assert!(matches!(events[1], SessionEvent::StatusIdle { seq: 2, stop_reason: None }));
+    assert!(matches!(events[1], SessionEvent::StatusIdle { seq: 2, stop_reason: None, .. }));
 }
 
 // ─── Test: Multi-event parsing (Requirement 6.3) ──────────────────────────────
@@ -263,7 +263,7 @@ async fn test_timeout_triggers_reconnect_not_error() {
     match second_event {
         Ok(Some(Ok(event))) => {
             // Reconnect succeeded and delivered the next event
-            assert!(matches!(event, SessionEvent::StatusIdle { seq: 2, stop_reason: None }));
+            assert!(matches!(event, SessionEvent::StatusIdle { seq: 2, stop_reason: None, .. }));
         }
         Ok(Some(Err(_))) => {
             // Reconnect may have failed after max attempts in test conditions — acceptable
@@ -313,5 +313,5 @@ async fn test_keepalive_comments_skipped() {
 
     assert_eq!(events.len(), 2);
     assert!(matches!(events[0], SessionEvent::StatusRunning { seq: 1 }));
-    assert!(matches!(events[1], SessionEvent::StatusIdle { seq: 2, stop_reason: None }));
+    assert!(matches!(events[1], SessionEvent::StatusIdle { seq: 2, stop_reason: None, .. }));
 }

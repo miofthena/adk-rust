@@ -11,7 +11,7 @@ use super::session::Usage;
 pub enum UserEvent {
     /// Send a text message to the agent.
     #[serde(rename = "user.message")]
-    Message { text: String },
+    Message { content: Vec<ContentBlock> },
 
     /// Interrupt the agent's current turn.
     #[serde(rename = "user.interrupt")]
@@ -46,7 +46,7 @@ pub enum ConfirmationResult {
 impl UserEvent {
     /// Create a `user.message` event with the given text.
     pub fn message(text: impl Into<String>) -> Self {
-        Self::Message { text: text.into() }
+        Self::Message { content: vec![ContentBlock::text(text)] }
     }
 
     /// Create a `user.interrupt` event.

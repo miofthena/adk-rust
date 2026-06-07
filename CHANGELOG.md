@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-06-07
+
+### Added
+
+- **First stable release.** All 39 workspace crates promoted to 1.0.0, committing to semantic versioning guarantees. This milestone marks ADK-Rust as production-ready with a stable public API.
+
+---
+
 ## [0.10.0] - 2026-05-31
 
 ### Breaking

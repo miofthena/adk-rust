@@ -15,6 +15,36 @@ Use AWP when:
 
 ## Architecture
 
+### AWP Request Flow
+
+```mermaid
+sequenceDiagram
+    participant ExtAgent as External Agent
+    participant Discovery as /.well-known/awp.json
+    participant Manifest as /awp/manifest
+    participant Health as /awp/health
+    participant A2A as /awp/a2a
+    participant Events as /awp/events/subscribe
+
+    ExtAgent->>Discovery: GET /.well-known/awp.json
+    Discovery-->>ExtAgent: {version, manifest_url, capabilities}
+    
+    ExtAgent->>Manifest: GET /awp/manifest
+    Manifest-->>ExtAgent: JSON-LD capability manifest
+    
+    ExtAgent->>Health: GET /awp/health
+    Health-->>ExtAgent: {status: "healthy", trust_level}
+    
+    ExtAgent->>A2A: POST /awp/a2a (agent message)
+    A2A-->>ExtAgent: Agent response
+    
+    ExtAgent->>Events: POST /awp/events/subscribe
+    Events-->>ExtAgent: {subscription_id, webhook_url}
+    Note over Events,ExtAgent: Future events delivered via<br/>HMAC-SHA256 signed webhooks
+```
+
+### Application Layout
+
 ```
 ┌─────────────────────────────────────────────────┐
 │                  Your Application                │

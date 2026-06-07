@@ -220,10 +220,11 @@ fn interactive_setup(cli_instruction: Option<String>) -> Result<ResolvedConfig> 
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
         let trimmed = input.trim();
-        if let Ok(n) = trimmed.parse::<usize>() {
-            if n >= 1 && n <= ALL_PROVIDERS.len() {
-                break ALL_PROVIDERS[n - 1];
-            }
+        if let Ok(n) = trimmed.parse::<usize>()
+            && n >= 1
+            && n <= ALL_PROVIDERS.len()
+        {
+            break ALL_PROVIDERS[n - 1];
         }
         println!("  Invalid choice, try again.");
     };
@@ -240,14 +241,14 @@ fn interactive_setup(cli_instruction: Option<String>) -> Result<ResolvedConfig> 
     };
     let _ = save_config(&config);
 
-    if let Some(api_key) = api_key.as_deref() {
-        if let Err(err) = save_api_key_to_keyring(provider, api_key) {
-            println!(
-                "  Warning: could not persist your API key securely ({err}).\n  \
+    if let Some(api_key) = api_key.as_deref()
+        && let Err(err) = save_api_key_to_keyring(provider, api_key)
+    {
+        println!(
+            "  Warning: could not persist your API key securely ({err}).\n  \
 Use {} in your environment or re-enter the key next run.\n",
-                provider.env_var()
-            );
-        }
+            provider.env_var()
+        );
     }
 
     let instruction = cli_instruction.unwrap_or_else(default_instruction);

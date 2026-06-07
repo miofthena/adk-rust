@@ -417,25 +417,25 @@ impl Llm for MistralRsModel {
                         while let Some(chunk) = stream.next().await {
                             match chunk {
                                 Response::Chunk(chunk_response) => {
-                                    if let Some(choice) = chunk_response.choices.first() {
-                                        if let Some(content) = &choice.delta.content {
-                                            accumulated_text.push_str(content);
+                                    if let Some(choice) = chunk_response.choices.first()
+                                        && let Some(content) = &choice.delta.content
+                                    {
+                                        accumulated_text.push_str(content);
 
-                                            let response = LlmResponse {
-                                                content: Some(Content::new("model").with_text(content.clone())),
-                                                usage_metadata: None,
-                                                finish_reason: None,
-                                                partial: true,
-                                                turn_complete: false,
-                                                interrupted: false,
-                                                citation_metadata: None,
-                                                error_code: None,
-                                                error_message: None,
-                                                provider_metadata: None,
-                                                interaction_id: None,
-                                            };
-                                            yield Ok(response);
-                                        }
+                                        let response = LlmResponse {
+                                            content: Some(Content::new("model").with_text(content.clone())),
+                                            usage_metadata: None,
+                                            finish_reason: None,
+                                            partial: true,
+                                            turn_complete: false,
+                                            interrupted: false,
+                                            citation_metadata: None,
+                                            error_code: None,
+                                            error_message: None,
+                                            provider_metadata: None,
+                                            interaction_id: None,
+                                        };
+                                        yield Ok(response);
                                     }
                                 }
                                 Response::Done(final_response) => {

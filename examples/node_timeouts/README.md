@@ -36,7 +36,7 @@ cargo run --manifest-path examples/node_timeouts/Cargo.toml
 
 ```
 ╔══════════════════════════════════════════╗
-║  Node Timeouts — ADK-Rust v0.8.0         ║
+║  Node Timeouts — ADK-Rust v1.0         ║
 ╚══════════════════════════════════════════╝
 
   ✓ GOOGLE_API_KEY loaded (39 chars)

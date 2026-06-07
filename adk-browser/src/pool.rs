@@ -54,10 +54,10 @@ impl BrowserSessionPool {
         // Fast path: check if session exists and is alive
         {
             let sessions = self.sessions.read().await;
-            if let Some(session) = sessions.get(user_id) {
-                if session.is_active().await {
-                    return Ok(session.clone());
-                }
+            if let Some(session) = sessions.get(user_id)
+                && session.is_active().await
+            {
+                return Ok(session.clone());
             }
         }
 

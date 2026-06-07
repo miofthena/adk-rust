@@ -41,7 +41,7 @@ RUST_LOG=debug cargo run --manifest-path examples/a2a_interceptors/Cargo.toml
 
 ```
 ╔════════════════════════════════════════════╗
-║  A2A Interceptors — ADK-Rust v0.8.0       ║
+║  A2A Interceptors — ADK-Rust v1.0       ║
 ╚════════════════════════════════════════════╝
 
   ✓ GOOGLE_API_KEY loaded (39 chars)

@@ -18,7 +18,7 @@ Plugin system for ADK-Rust agents.
 - **Agent callbacks**: Before/after agent execution
 - **Model callbacks**: Before/after LLM calls, error handling
 - **Tool callbacks**: Before/after tool execution, error handling
-- **Enhanced Plugin System** (v0.8.2):
+- **Enhanced Plugin System**:
   - `EnhancedPlugin` trait — implement only the hooks you need
   - Tool-call interception with argument modification and short-circuit
   - Model-call interception with request/response modification
@@ -31,7 +31,7 @@ Plugin system for ADK-Rust agents.
 
 ```toml
 [dependencies]
-adk-plugin = "0.10.0"
+adk-plugin = "1.0.0"
 ```
 
 ## Quick Start

@@ -172,17 +172,17 @@ impl EnhancedPlugin for RetryReflectPlugin {
         }
 
         // Check global limit
-        if let Some(global_limit) = self.config.global_limit {
-            if tracker.total() >= global_limit {
-                let error_msg = Self::extract_error_message(&result);
-                tracing::warn!(
-                    tool_name = %tool_name,
-                    total_attempts = tracker.total(),
-                    error = %error_msg,
-                    "retry_reflect.global_limit_exhausted"
-                );
-                return Ok(AfterToolCallResult::Continue(result));
-            }
+        if let Some(global_limit) = self.config.global_limit
+            && tracker.total() >= global_limit
+        {
+            let error_msg = Self::extract_error_message(&result);
+            tracing::warn!(
+                tool_name = %tool_name,
+                total_attempts = tracker.total(),
+                error = %error_msg,
+                "retry_reflect.global_limit_exhausted"
+            );
+            return Ok(AfterToolCallResult::Continue(result));
         }
 
         // Step 5: Increment failure counters

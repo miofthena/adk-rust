@@ -324,18 +324,16 @@ impl RustExecutor {
             .output()
             .await;
 
-        if let Ok(output) = output {
-            if output.status.success() {
-                if let Ok(metadata) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                    if let Some(target_dir) = metadata["target_directory"].as_str() {
-                        let deps_dir = PathBuf::from(target_dir).join("debug").join("deps");
-                        searched.push(format!("cargo metadata: {}", deps_dir.display()));
-                        if let Some(rlib) = find_rlib_in_dir(&deps_dir, "serde_json").await {
-                            debug!(path = %rlib.display(), "found serde_json via cargo metadata");
-                            return Ok(Some(rlib));
-                        }
-                    }
-                }
+        if let Ok(output) = output
+            && output.status.success()
+            && let Ok(metadata) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            && let Some(target_dir) = metadata["target_directory"].as_str()
+        {
+            let deps_dir = PathBuf::from(target_dir).join("debug").join("deps");
+            searched.push(format!("cargo metadata: {}", deps_dir.display()));
+            if let Some(rlib) = find_rlib_in_dir(&deps_dir, "serde_json").await {
+                debug!(path = %rlib.display(), "found serde_json via cargo metadata");
+                return Ok(Some(rlib));
             }
         } else {
             searched.push("cargo metadata: command failed".to_string());

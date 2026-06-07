@@ -38,7 +38,7 @@ RUST_LOG=debug cargo run --manifest-path examples/context_compaction/Cargo.toml
 
 ```
 ╔══════════════════════════════════════════════╗
-║  Context Compaction — ADK-Rust v0.8.0        ║
+║  Context Compaction — ADK-Rust v1.0        ║
 ╚══════════════════════════════════════════════╝
 
   ✓ GOOGLE_API_KEY loaded (39 chars)

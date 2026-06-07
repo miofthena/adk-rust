@@ -55,9 +55,9 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-adk-managed = "0.10"
-adk-session = "0.10"
-adk-core = "0.10"
+adk-managed = "1.0"
+adk-session = "1.0"
+adk-core = "1.0"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 async-trait = "0.1"
@@ -67,7 +67,7 @@ Or via the umbrella crate:
 
 ```toml
 [dependencies]
-adk-rust = { version = "0.10", features = ["managed-runtime"] }
+adk-rust = { version = "1.0", features = ["managed-runtime"] }
 ```
 
 ### Minimal Example

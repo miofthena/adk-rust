@@ -169,7 +169,7 @@ impl AudioChunk {
     ///
     /// Returns an error string if the data length is not even (not valid PCM16).
     pub fn to_i16_samples(&self) -> Result<Vec<i16>, String> {
-        if self.data.len() % 2 != 0 {
+        if !self.data.len().is_multiple_of(2) {
             return Err(format!(
                 "Invalid data length for PCM16: {} (must be even)",
                 self.data.len()

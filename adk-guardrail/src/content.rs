@@ -152,17 +152,17 @@ impl Guardrail for ContentFilter {
         let text_lower = text.to_lowercase();
 
         // Check blocked keywords
-        if let Some(ref regex_set) = self.blocked_regex {
-            if regex_set.is_match(&text) {
-                let matches: Vec<_> = regex_set.matches(&text).iter().collect();
-                return GuardrailResult::Fail {
-                    reason: format!(
-                        "Content contains blocked keywords (matched {} patterns)",
-                        matches.len()
-                    ),
-                    severity: self.config.severity,
-                };
-            }
+        if let Some(ref regex_set) = self.blocked_regex
+            && regex_set.is_match(&text)
+        {
+            let matches: Vec<_> = regex_set.matches(&text).iter().collect();
+            return GuardrailResult::Fail {
+                reason: format!(
+                    "Content contains blocked keywords (matched {} patterns)",
+                    matches.len()
+                ),
+                severity: self.config.severity,
+            };
         }
 
         // Check required topics
@@ -181,22 +181,22 @@ impl Guardrail for ContentFilter {
         }
 
         // Check length limits
-        if let Some(max) = self.config.max_length {
-            if text.len() > max {
-                return GuardrailResult::Fail {
-                    reason: format!("Content exceeds maximum length ({} > {})", text.len(), max),
-                    severity: self.config.severity,
-                };
-            }
+        if let Some(max) = self.config.max_length
+            && text.len() > max
+        {
+            return GuardrailResult::Fail {
+                reason: format!("Content exceeds maximum length ({} > {})", text.len(), max),
+                severity: self.config.severity,
+            };
         }
 
-        if let Some(min) = self.config.min_length {
-            if text.len() < min {
-                return GuardrailResult::Fail {
-                    reason: format!("Content below minimum length ({} < {})", text.len(), min),
-                    severity: self.config.severity,
-                };
-            }
+        if let Some(min) = self.config.min_length
+            && text.len() < min
+        {
+            return GuardrailResult::Fail {
+                reason: format!("Content below minimum length ({} < {})", text.len(), min),
+                severity: self.config.severity,
+            };
         }
 
         GuardrailResult::Pass

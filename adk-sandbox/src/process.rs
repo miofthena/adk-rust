@@ -373,11 +373,11 @@ impl ProcessBackend {
         let mut child = cmd.spawn()?;
 
         // Pipe stdin if provided
-        if let Some(ref input) = request.stdin {
-            if let Some(mut stdin_handle) = child.stdin.take() {
-                stdin_handle.write_all(input.as_bytes()).await?;
-                drop(stdin_handle);
-            }
+        if let Some(ref input) = request.stdin
+            && let Some(mut stdin_handle) = child.stdin.take()
+        {
+            stdin_handle.write_all(input.as_bytes()).await?;
+            drop(stdin_handle);
         }
 
         // Wait with timeout

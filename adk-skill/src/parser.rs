@@ -113,10 +113,10 @@ pub fn parse_instruction_markdown(path: &Path, content: &str) -> SkillResult<Par
 fn parse_convention_markdown(path: &Path, content: &str) -> SkillResult<ParsedSkill> {
     // Convention files often use plain markdown without frontmatter. If frontmatter is present
     // and valid, we still honor it for compatibility.
-    if content.lines().next().is_some_and(|line| line.trim() == "---") {
-        if let Ok(parsed) = parse_skill_markdown(path, content) {
-            return Ok(parsed);
-        }
+    if content.lines().next().is_some_and(|line| line.trim() == "---")
+        && let Ok(parsed) = parse_skill_markdown(path, content)
+    {
+        return Ok(parsed);
     }
 
     let normalized = content.replace("\r\n", "\n");

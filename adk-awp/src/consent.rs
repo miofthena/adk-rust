@@ -169,15 +169,15 @@ impl FileConsentService {
         })?;
 
         // Create parent directories if needed
-        if let Some(parent) = self.path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    AwpError::InternalError(format!(
-                        "failed to create consent directory {}: {e}",
-                        parent.display()
-                    ))
-                })?;
-            }
+        if let Some(parent) = self.path.parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                AwpError::InternalError(format!(
+                    "failed to create consent directory {}: {e}",
+                    parent.display()
+                ))
+            })?;
         }
 
         std::fs::write(&self.path, json).map_err(|e| {

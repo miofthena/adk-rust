@@ -260,10 +260,10 @@ async fn test_before_tool_callback_short_circuits_tool_execution() {
         let event = result.unwrap();
         if let Some(content) = event.llm_response.content {
             for part in content.parts {
-                if let Part::Text { text } = part {
-                    if text == "blocked" {
-                        saw_blocked = true;
-                    }
+                if let Part::Text { text } = part
+                    && text == "blocked"
+                {
+                    saw_blocked = true;
                 }
             }
         }

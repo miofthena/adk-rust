@@ -14,14 +14,17 @@ dependencies = [
 
 [[package]]
 name = "adk-agent"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "adk-skill",
  "adk-telemetry",
  "async-stream",
  "async-trait",
+ "chrono",
  "futures",
+ "jsonschema 0.28.3",
+ "schemars",
  "serde",
  "serde_json",
  "tokio",
@@ -30,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "adk-anthropic"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "base64",
  "bytes",
@@ -50,7 +53,7 @@ dependencies = [
 
 [[package]]
 name = "adk-artifact"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "async-trait",
@@ -60,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "adk-auth"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "async-trait",
@@ -76,7 +79,7 @@ dependencies = [
 
 [[package]]
 name = "adk-core"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -91,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "adk-eval"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "adk-model",
@@ -109,7 +112,7 @@ dependencies = [
 
 [[package]]
 name = "adk-gemini"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "async-stream",
@@ -135,7 +138,7 @@ dependencies = [
 
 [[package]]
 name = "adk-graph"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "async-stream",
@@ -152,12 +155,12 @@ dependencies = [
 
 [[package]]
 name = "adk-guardrail"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "async-trait",
  "futures",
- "jsonschema",
+ "jsonschema 0.45.0",
  "regex",
  "serde",
  "serde_json",
@@ -167,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "adk-memory"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "async-trait",
@@ -179,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "adk-model"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-anthropic",
  "adk-core",
@@ -201,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "adk-plugin"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "serde_json",
@@ -211,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "adk-runner"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-artifact",
  "adk-core",
@@ -232,7 +235,7 @@ dependencies = [
 
 [[package]]
 name = "adk-rust"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-agent",
  "adk-anthropic",
@@ -261,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "adk-rust-macros"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -270,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "adk-server"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "a2a-protocol-types",
  "adk-agent",
@@ -303,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "adk-session"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "async-trait",
@@ -316,7 +319,7 @@ dependencies = [
 
 [[package]]
 name = "adk-skill"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "adk-plugin",
@@ -330,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "adk-telemetry"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",
@@ -339,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "adk-tool"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "adk-core",
  "adk-rust-macros",
@@ -857,6 +860,17 @@ dependencies = [
 
 [[package]]
 name = "fancy-regex"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e24cb5a94bcae1e5408b0effca5cd7172ea3c5755049c5f3af4cd283a165298"
+dependencies = [
+ "bit-set",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
+name = "fancy-regex"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72cf461f865c862bb7dc573f643dd6a2b6842f7c30b07882b56bd148cc2761b8"
@@ -871,6 +885,17 @@ name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
+
+[[package]]
+name = "fluent-uri"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1918b65d96df47d3591bed19c5cca17e3fa5d0707318e4b5ef2eae01764df7e5"
+dependencies = [
+ "borrow-or-share",
+ "ref-cast",
+ "serde",
+]
 
 [[package]]
 name = "fluent-uri"
@@ -1443,6 +1468,30 @@ dependencies = [
 
 [[package]]
 name = "jsonschema"
+version = "0.28.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b8f66fe41fa46a5c83ed1c717b7e0b4635988f427083108c8cf0a882cc13441"
+dependencies = [
+ "ahash",
+ "base64",
+ "bytecount",
+ "email_address",
+ "fancy-regex 0.14.0",
+ "fraction",
+ "idna",
+ "itoa",
+ "num-cmp",
+ "once_cell",
+ "percent-encoding",
+ "referencing 0.28.3",
+ "regex-syntax",
+ "serde",
+ "serde_json",
+ "uuid-simd",
+]
+
+[[package]]
+name = "jsonschema"
 version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f29616f6e19415398eb186964fb7cbbeef572c79bede3622a8277667924bbe3"
@@ -1451,7 +1500,7 @@ dependencies = [
  "bytecount",
  "data-encoding",
  "email_address",
- "fancy-regex",
+ "fancy-regex 0.17.0",
  "fraction",
  "getrandom 0.3.4",
  "idna",
@@ -1459,7 +1508,7 @@ dependencies = [
  "num-cmp",
  "num-traits",
  "percent-encoding",
- "referencing",
+ "referencing 0.45.0",
  "regex",
  "regex-syntax",
  "serde",
@@ -1959,12 +2008,25 @@ dependencies = [
 
 [[package]]
 name = "referencing"
+version = "0.28.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0dcb5ab28989ad7c91eb1b9531a37a1a137cc69a0499aee4117cae4a107c464"
+dependencies = [
+ "ahash",
+ "fluent-uri 0.3.2",
+ "once_cell",
+ "percent-encoding",
+ "serde_json",
+]
+
+[[package]]
+name = "referencing"
 version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8a618c14f8ba29d8193bb55e2bf13e4fb2b1115313ecb7ae94b43100c7ac7d5"
 dependencies = [
  "ahash",
- "fluent-uri",
+ "fluent-uri 0.4.1",
  "getrandom 0.3.4",
  "hashbrown 0.16.1",
  "parking_lot",
@@ -2883,6 +2945,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b082222b4f6619906941c17eb2297fff4c2fb96cb60164170522942a200bd8"
 dependencies = [
  "outref",
+ "uuid",
  "vsimd",
 ]
 

@@ -655,10 +655,10 @@ mod tests {
             if block.trim().is_empty() {
                 continue;
             }
-            if let Some(frame) = parse_sse_block(block) {
-                if let Some(ref id) = frame.id {
-                    last_id = Some(id.clone());
-                }
+            if let Some(frame) = parse_sse_block(block)
+                && let Some(ref id) = frame.id
+            {
+                last_id = Some(id.clone());
             }
         }
 

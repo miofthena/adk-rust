@@ -67,7 +67,7 @@ fn print_stats(name: &str, durations: &mut [Duration]) {
     let sum: Duration = durations.iter().sum();
     let mean = sum / count as u32;
 
-    let median = if count % 2 == 0 {
+    let median = if count.is_multiple_of(2) {
         (durations[count / 2 - 1] + durations[count / 2]) / 2
     } else {
         durations[count / 2]

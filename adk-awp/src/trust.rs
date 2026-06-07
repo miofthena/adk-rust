@@ -26,12 +26,11 @@ pub struct DefaultTrustAssigner;
 #[async_trait]
 impl TrustLevelAssigner for DefaultTrustAssigner {
     async fn assign(&self, headers: &HeaderMap) -> TrustLevel {
-        if let Some(auth) = headers.get("Authorization") {
-            if let Ok(val) = auth.to_str() {
-                if val.starts_with("Bearer ") || val.starts_with("ApiKey ") {
-                    return TrustLevel::Known;
-                }
-            }
+        if let Some(auth) = headers.get("Authorization")
+            && let Ok(val) = auth.to_str()
+            && (val.starts_with("Bearer ") || val.starts_with("ApiKey "))
+        {
+            return TrustLevel::Known;
         }
         TrustLevel::Anonymous
     }

@@ -126,15 +126,14 @@ impl TransactionStore for SessionBackedTransactionStore {
                     session_identity: Some(identity.clone()),
                 })
                 .await?
-            {
-                if !matches!(
+                && !matches!(
                     record.state,
                     TransactionState::Completed
                         | TransactionState::Canceled
                         | TransactionState::Failed
-                ) {
-                    records.push(record);
-                }
+                )
+            {
+                records.push(record);
             }
         }
 

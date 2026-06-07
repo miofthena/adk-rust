@@ -22,7 +22,7 @@ Run LLMs locally with native Rust inference - no external servers, no API keys.
 
 ## Step 1: Add Dependencies
 
-Since `adk-mistralrs` depends on git repositories, it cannot be published to crates.io. Add it via git:
+`adk-mistralrs` is published to crates.io as a workspace member. Add it as a standard dependency:
 
 ```toml
 [package]
@@ -31,9 +31,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-adk-mistralrs = { git = "https://github.com/zavora-ai/adk-rust" }
-adk-agent = { git = "https://github.com/zavora-ai/adk-rust" }
-adk-rust = { git = "https://github.com/zavora-ai/adk-rust" }
+adk-mistralrs = "1.0.0"
+adk-agent = "1.0.0"
+adk-rust = "1.0.0"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 ```
@@ -42,10 +42,10 @@ For hardware acceleration, add feature flags:
 
 ```toml
 # macOS with Apple Silicon
-adk-mistralrs = { git = "https://github.com/zavora-ai/adk-rust", features = ["metal"] }
+adk-mistralrs = { version = "1.0.0", features = ["metal"] }
 
 # NVIDIA GPU (requires CUDA toolkit)
-adk-mistralrs = { git = "https://github.com/zavora-ai/adk-rust", features = ["cuda"] }
+adk-mistralrs = { version = "1.0.0", features = ["cuda"] }
 ```
 
 ---
@@ -282,7 +282,7 @@ ModelSource::gguf("/path/to/model.Q4_K_M.gguf")
 ### macOS (Apple Silicon)
 
 ```toml
-adk-mistralrs = { git = "https://github.com/zavora-ai/adk-rust", features = ["metal"] }
+adk-mistralrs = { version = "1.0.0", features = ["metal"] }
 ```
 
 Metal acceleration is automatic on M1/M2/M3 Macs.
@@ -290,7 +290,7 @@ Metal acceleration is automatic on M1/M2/M3 Macs.
 ### NVIDIA GPU
 
 ```toml
-adk-mistralrs = { git = "https://github.com/zavora-ai/adk-rust", features = ["cuda"] }
+adk-mistralrs = { version = "1.0.0", features = ["cuda"] }
 ```
 
 Requires CUDA toolkit 11.8+.
@@ -304,8 +304,8 @@ No features needed - CPU is the default.
 ## Validate the Crate
 
 ```bash
-cargo build --manifest-path adk-mistralrs/Cargo.toml
-cargo build --manifest-path adk-mistralrs/Cargo.toml --features metal
+cargo build -p adk-mistralrs
+cargo build -p adk-mistralrs --features metal
 ```
 
 ---

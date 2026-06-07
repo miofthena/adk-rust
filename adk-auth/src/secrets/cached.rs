@@ -52,10 +52,10 @@ impl<P: SecretProvider> SecretProvider for CachedSecretProvider<P> {
         // Check cache first
         {
             let cache = self.cache.read().await;
-            if let Some(entry) = cache.get(name) {
-                if entry.expires_at > Instant::now() {
-                    return Ok(entry.value.clone());
-                }
+            if let Some(entry) = cache.get(name)
+                && entry.expires_at > Instant::now()
+            {
+                return Ok(entry.value.clone());
             }
         }
 

@@ -36,10 +36,10 @@ pub fn awp_error_response(err: AwpError) -> Response {
 
     let mut response = (status, Json(body)).into_response();
 
-    if let AwpError::RateLimited { retry_after_secs } = &err {
-        if let Ok(val) = retry_after_secs.to_string().parse() {
-            response.headers_mut().insert("Retry-After", val);
-        }
+    if let AwpError::RateLimited { retry_after_secs } = &err
+        && let Ok(val) = retry_after_secs.to_string().parse()
+    {
+        response.headers_mut().insert("Retry-After", val);
     }
 
     response

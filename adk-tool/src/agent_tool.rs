@@ -185,12 +185,12 @@ impl AgentTool {
 
         if responses.is_empty() {
             // Try to get any text from the last event
-            if let Some(last_event) = events.last() {
-                if let Some(content) = &last_event.llm_response.content {
-                    for part in &content.parts {
-                        if let Part::Text { text } = part {
-                            return json!({ "response": text });
-                        }
+            if let Some(last_event) = events.last()
+                && let Some(content) = &last_event.llm_response.content
+            {
+                for part in &content.parts {
+                    if let Part::Text { text } = part {
+                        return json!({ "response": text });
                     }
                 }
             }

@@ -315,50 +315,50 @@ pub struct AuditFilter {
 impl AuditFilter {
     /// Check if an event matches this filter.
     pub fn matches(&self, event: &AuditEvent) -> bool {
-        if let Some(ref user) = self.user {
-            if &event.user != user {
-                return false;
-            }
+        if let Some(ref user) = self.user
+            && &event.user != user
+        {
+            return false;
         }
-        if let Some(ref ws) = self.workspace_id {
-            if event.workspace_id.as_ref() != Some(ws) {
-                return false;
-            }
+        if let Some(ref ws) = self.workspace_id
+            && event.workspace_id.as_ref() != Some(ws)
+        {
+            return false;
         }
-        if let Some(ref tid) = self.tenant_id {
-            if event.tenant_id.as_ref() != Some(tid) {
-                return false;
-            }
+        if let Some(ref tid) = self.tenant_id
+            && event.tenant_id.as_ref() != Some(tid)
+        {
+            return false;
         }
-        if let Some(ref et) = self.event_type {
-            if &event.event_type != et {
-                return false;
-            }
+        if let Some(ref et) = self.event_type
+            && &event.event_type != et
+        {
+            return false;
         }
-        if let Some(ref oc) = self.outcome {
-            if &event.outcome != oc {
-                return false;
-            }
+        if let Some(ref oc) = self.outcome
+            && &event.outcome != oc
+        {
+            return false;
         }
-        if let Some(ref res) = self.resource {
-            if !event.resource.contains(res.as_str()) {
-                return false;
-            }
+        if let Some(ref res) = self.resource
+            && !event.resource.contains(res.as_str())
+        {
+            return false;
         }
-        if let Some(ref rid) = self.resource_id {
-            if event.resource_id.as_ref() != Some(rid) {
-                return false;
-            }
+        if let Some(ref rid) = self.resource_id
+            && event.resource_id.as_ref() != Some(rid)
+        {
+            return false;
         }
-        if let Some(after) = self.after {
-            if event.timestamp <= after {
-                return false;
-            }
+        if let Some(after) = self.after
+            && event.timestamp <= after
+        {
+            return false;
         }
-        if let Some(before) = self.before {
-            if event.timestamp >= before {
-                return false;
-            }
+        if let Some(before) = self.before
+            && event.timestamp >= before
+        {
+            return false;
         }
         true
     }

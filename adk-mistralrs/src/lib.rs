@@ -3,13 +3,13 @@
 //! Native [mistral.rs](https://github.com/EricLBuehler/mistral.rs) integration for ADK-Rust,
 //! providing blazingly fast local LLM inference without external dependencies.
 //!
-//! > **Note:** This crate is NOT published to crates.io because mistral.rs depends on
-//! > unpublished git dependencies. Add it via git dependency instead:
-//! >
-//! > ```toml
-//! > [dependencies]
-//! > adk-mistralrs = { git = "https://github.com/zavora-ai/adk-rust" }
-//! > ```
+//! This crate is published to [crates.io](https://crates.io/crates/adk-mistralrs) as a
+//! workspace member. GPU features (`cuda`, `metal`) are opt-in.
+//!
+//! ```toml
+//! [dependencies]
+//! adk-mistralrs = "1.0.0"
+//! ```
 //!
 //! ## Features
 //!
@@ -145,7 +145,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! adk-mistralrs = { git = "https://github.com/zavora-ai/adk-rust", features = ["cuda"] }
+//! adk-mistralrs = { version = "1.0.0", features = ["cuda"] }
 //! ```
 //!
 //! Available features:

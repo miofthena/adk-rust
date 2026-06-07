@@ -220,17 +220,17 @@ fn convert_update_event(
         }
         UpdateEvent::TaskStatusUpdate(status_event) => {
             // Only create event for final status updates with messages
-            if status_event.final_update {
-                if let Some(msg) = status_event.status.message {
-                    let mut event = Event::new(invocation_id.to_string());
-                    event.author = agent_name.to_string();
-                    event.llm_response.content = Some(Content {
-                        role: "model".to_string(),
-                        parts: vec![Part::Text { text: msg }],
-                    });
-                    event.llm_response.turn_complete = true;
-                    return Some(event);
-                }
+            if status_event.final_update
+                && let Some(msg) = status_event.status.message
+            {
+                let mut event = Event::new(invocation_id.to_string());
+                event.author = agent_name.to_string();
+                event.llm_response.content = Some(Content {
+                    role: "model".to_string(),
+                    parts: vec![Part::Text { text: msg }],
+                });
+                event.llm_response.turn_complete = true;
+                return Some(event);
             }
             None
         }

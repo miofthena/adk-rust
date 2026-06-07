@@ -6,11 +6,9 @@ The following versions of ADK-Rust are currently supported with security updates
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.5.x   | :white_check_mark: |
-| 0.4.x   | :white_check_mark: |
-| 0.3.x   | :x:                |
-| 0.2.x   | :x:                |
-| 0.1.x   | :x:                |
+| 1.0.x   | :white_check_mark: |
+| 0.9.x   | :white_check_mark: |
+| < 0.9   | :x:                |
 
 We recommend always using the latest version to benefit from security patches and improvements.
 
@@ -66,6 +64,13 @@ When using ADK-Rust in your applications:
 - Use guardrails for input/output validation
 - Review agent outputs before taking automated actions
 - Implement proper authentication for server deployments
+
+## Known Dependency Advisories
+
+For a detailed assessment of known security advisories in ADK-Rust's transitive dependency tree (accepted risks, deferred upgrades, unmaintained crates), see:
+
+- **[Dependency Advisories](docs/security/DEPENDENCY-ADVISORIES.md)** — human-readable risk assessments
+- **[`.cargo/audit.toml`](.cargo/audit.toml)** — machine-readable ignore list for `cargo audit`
 
 ## Scope
 

@@ -7,13 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2026-06-07
 
-### Added
-
-- **First stable release.** All 39 workspace crates promoted to 1.0.0, committing to semantic versioning guarantees. This milestone marks ADK-Rust as production-ready with a stable public API.
-
----
-
-## [0.10.0] - 2026-05-31
+> **Note:** 0.10.0 was an internal-only release and was never published to crates.io. All changes below were shipped as part of 1.0.0.
 
 ### Breaking
 
@@ -34,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   struct-literal / exhaustive-match consumers.
 
 ### Added
+
+- **First stable release.** All 39 workspace crates promoted to 1.0.0, committing to semantic versioning guarantees. This milestone marks ADK-Rust as production-ready with a stable public API.
 
 - **adk-eval: Competitive parity features** — 10 new capabilities bringing the
   evaluation framework to parity with Braintrust, LangSmith, and Inspect AI:

@@ -466,12 +466,12 @@ examples/<name>/
 
 ### adk-mistralrs
 
-This crate depends on `mistral.rs` which uses git dependencies (candle). It cannot be published to crates.io and is excluded from the workspace to avoid requiring CUDA toolkit for `--all-features` builds. It has its own CI workflow. Build it explicitly:
+`adk-mistralrs` is published to crates.io as a workspace member. GPU features (`cuda`, `metal`) are opt-in. It has its own CI workflow for GPU-specific testing. Build it with:
 
 ```bash
-cargo build --manifest-path adk-mistralrs/Cargo.toml
-cargo build --manifest-path adk-mistralrs/Cargo.toml --features metal  # macOS GPU
-cargo build --manifest-path adk-mistralrs/Cargo.toml --features cuda   # NVIDIA GPU
+cargo build -p adk-mistralrs
+cargo build -p adk-mistralrs --features metal  # macOS GPU
+cargo build -p adk-mistralrs --features cuda   # NVIDIA GPU
 ```
 
 ## Getting Help

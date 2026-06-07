@@ -226,10 +226,9 @@ impl FileArtifactService {
                 .await
                 .map_err(|e| adk_core::AdkError::artifact(format!("file type check failed: {e}")))?
                 .is_dir()
+                && let Some(name) = entry.file_name().to_str()
             {
-                if let Some(name) = entry.file_name().to_str() {
-                    names.insert(fs_unsafe_name(name));
-                }
+                names.insert(fs_unsafe_name(name));
             }
         }
 

@@ -467,7 +467,7 @@ mod tests {
     #[test]
     fn test_permission_mode_auto_approve_serialization() {
         let mode = PermissionMode::AutoApprove;
-        let serialized = serde_json::to_value(&mode).unwrap();
+        let serialized = serde_json::to_value(mode).unwrap();
         assert_eq!(serialized, json!("auto_approve"));
 
         let deserialized: PermissionMode = serde_json::from_value(serialized).unwrap();
@@ -477,7 +477,7 @@ mod tests {
     #[test]
     fn test_permission_mode_prompt_serialization() {
         let mode = PermissionMode::Prompt;
-        let serialized = serde_json::to_value(&mode).unwrap();
+        let serialized = serde_json::to_value(mode).unwrap();
         assert_eq!(serialized, json!("prompt"));
 
         let deserialized: PermissionMode = serde_json::from_value(serialized).unwrap();
@@ -487,7 +487,7 @@ mod tests {
     #[test]
     fn test_permission_mode_deny_serialization() {
         let mode = PermissionMode::Deny;
-        let serialized = serde_json::to_value(&mode).unwrap();
+        let serialized = serde_json::to_value(mode).unwrap();
         assert_eq!(serialized, json!("deny"));
 
         let deserialized: PermissionMode = serde_json::from_value(serialized).unwrap();

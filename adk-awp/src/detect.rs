@@ -38,10 +38,10 @@ const AGENT_PATTERNS: &[&str] = &[
 /// ```
 pub fn detect_requester_type(headers: &HeaderMap) -> RequesterType {
     // 1. X-AWP-Channel override
-    if let Some(channel) = headers.get("X-AWP-Channel") {
-        if channel.to_str().unwrap_or("").eq_ignore_ascii_case("agent") {
-            return RequesterType::Agent;
-        }
+    if let Some(channel) = headers.get("X-AWP-Channel")
+        && channel.to_str().unwrap_or("").eq_ignore_ascii_case("agent")
+    {
+        return RequesterType::Agent;
     }
 
     // 2. Accept + User-Agent combination

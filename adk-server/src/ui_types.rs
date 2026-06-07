@@ -304,13 +304,10 @@ fn validate_domain_list(domains: Option<&Vec<String>>, field: &str) -> Result<()
 }
 
 pub fn validate_mcp_apps_render_options(options: &McpAppsRenderOptions) -> Result<(), String> {
-    if let Some(domain) = options.domain.as_deref() {
-        if !is_allowed_domain(domain) {
-            return Err(format!(
-                "Invalid mcp_apps option 'domain': unsupported domain '{}'",
-                domain
-            ));
-        }
+    if let Some(domain) = options.domain.as_deref()
+        && !is_allowed_domain(domain)
+    {
+        return Err(format!("Invalid mcp_apps option 'domain': unsupported domain '{}'", domain));
     }
     if let Some(csp) = &options.csp {
         validate_domain_list(csp.connect_domains.as_ref(), "csp.connect_domains")?;

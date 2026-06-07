@@ -39,7 +39,7 @@ RUST_LOG=debug cargo run --manifest-path examples/delta_checkpoints/Cargo.toml
 
 ```
 ╔══════════════════════════════════════════╗
-║  Delta Checkpoints — ADK-Rust v0.8.0     ║
+║  Delta Checkpoints — ADK-Rust v1.0     ║
 ╚══════════════════════════════════════════╝
 
   ✓ GOOGLE_API_KEY loaded (39 chars)

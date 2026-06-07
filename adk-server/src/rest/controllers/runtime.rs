@@ -457,10 +457,10 @@ fn activity_events_from_ag_ui_input(input: &AgUiRunInput) -> Vec<Value> {
                     "content": activity_content_snapshot(message.content.as_ref()),
                     "timestamp": timestamp,
                 });
-                if let Some(replace) = message.replace {
-                    if let Some(object) = event.as_object_mut() {
-                        object.insert("replace".to_string(), Value::Bool(replace));
-                    }
+                if let Some(replace) = message.replace
+                    && let Some(object) = event.as_object_mut()
+                {
+                    object.insert("replace".to_string(), Value::Bool(replace));
                 }
                 event
             }
@@ -504,10 +504,10 @@ fn ag_ui_state_delta(input: &AgUiRunInput) -> HashMap<String, Value> {
         }
     }
 
-    if !input.messages.is_empty() {
-        if let Ok(value) = serde_json::to_value(&input.messages) {
-            delta.insert("temp:ag_ui_messages".to_string(), value);
-        }
+    if !input.messages.is_empty()
+        && let Ok(value) = serde_json::to_value(&input.messages)
+    {
+        delta.insert("temp:ag_ui_messages".to_string(), value);
     }
     if !input.tools.is_empty() {
         delta.insert("temp:ag_ui_tools".to_string(), Value::Array(input.tools.clone()));
@@ -708,10 +708,8 @@ fn timestamp_millis(event: &adk_core::Event) -> u64 {
 }
 
 fn serialize_ag_ui_tool_call_delta(args: &Value, allow_raw_string_delta: bool) -> String {
-    if allow_raw_string_delta {
-        if let Value::String(delta) = args {
-            return delta.clone();
-        }
+    if allow_raw_string_delta && let Value::String(delta) = args {
+        return delta.clone();
     }
 
     serde_json::to_string(args).unwrap_or_else(|_| args.to_string())
@@ -1049,17 +1047,16 @@ where
                                 "threadId": selected_thread_id,
                                 "runId": run_id,
                             });
-                            if let Some(parent_run_id) = selected_parent_run_id.clone() {
-                                if let Some(object) = started_event.as_object_mut() {
-                                    object.insert("parentRunId".to_string(), Value::String(parent_run_id));
-                                }
+                            if let Some(parent_run_id) = selected_parent_run_id.clone()
+                                && let Some(object) = started_event.as_object_mut()
+                            {
+                                object.insert("parentRunId".to_string(), Value::String(parent_run_id));
                             }
-                            if let Some(run_input) = selected_run_input.clone() {
-                                if let Ok(value) = serde_json::to_value(run_input) {
-                                    if let Some(object) = started_event.as_object_mut() {
-                                        object.insert("input".to_string(), value);
-                                    }
-                                }
+                            if let Some(run_input) = selected_run_input.clone()
+                                && let Ok(value) = serde_json::to_value(run_input)
+                                && let Some(object) = started_event.as_object_mut()
+                            {
+                                object.insert("input".to_string(), value);
                             }
                             yield Ok(Event::default().data(started_event.to_string()));
 

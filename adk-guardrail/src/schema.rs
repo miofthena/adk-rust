@@ -40,10 +40,10 @@ impl SchemaValidator {
                     return Some(json);
                 }
                 // Try to extract JSON from markdown code block
-                if let Some(json_str) = Self::extract_json_from_markdown(text) {
-                    if let Ok(json) = serde_json::from_str(&json_str) {
-                        return Some(json);
-                    }
+                if let Some(json_str) = Self::extract_json_from_markdown(text)
+                    && let Ok(json) = serde_json::from_str(&json_str)
+                {
+                    return Some(json);
                 }
             }
         }

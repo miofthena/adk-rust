@@ -533,10 +533,10 @@ impl RealtimeRunner {
 
         // 2. Explicitly tear down the old WebSocket connection to release upstream resources.
         // Do this WITHOUT holding the lock across `.await`.
-        if let Some(session) = old_session {
-            if let Err(e) = session.close().await {
-                tracing::warn!("Failed to cleanly close old session during resumption: {}", e);
-            }
+        if let Some(session) = old_session
+            && let Err(e) = session.close().await
+        {
+            tracing::warn!("Failed to cleanly close old session during resumption: {}", e);
         }
 
         // 3. Establish a brand new connection using the provider-agnostic factory interface.
@@ -676,11 +676,11 @@ impl RealtimeRunner {
                 None => {
                     // Session closed or swapped out. Check if a new session was installed (e.g., during reconnect).
                     let current_session_id = self.session_id().await;
-                    if let Some(id) = current_session_id {
-                        if id != old_session_id {
-                            // A new session handle was installed concurrently. Continue polling.
-                            continue;
-                        }
+                    if let Some(id) = current_session_id
+                        && id != old_session_id
+                    {
+                        // A new session handle was installed concurrently. Continue polling.
+                        continue;
                     }
                     // It was a real disconnect.
                     break;

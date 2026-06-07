@@ -36,7 +36,7 @@ cargo run --manifest-path examples/deferred_nodes/Cargo.toml
 
 ```
 ╔══════════════════════════════════════════╗
-║  Deferred Nodes — ADK-Rust v0.8.0        ║
+║  Deferred Nodes — ADK-Rust v1.0        ║
 ╚══════════════════════════════════════════╝
 
 --- Step 1: Configure Parallel Research Branches ---

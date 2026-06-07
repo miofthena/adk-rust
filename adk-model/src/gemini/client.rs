@@ -545,11 +545,11 @@ impl GeminiModel {
         // Add grounding metadata as text if present (required for Google Search grounding compliance)
         if let Some(grounding) = resp.candidates.first().and_then(|c| c.grounding_metadata.as_ref())
         {
-            if let Some(queries) = &grounding.web_search_queries {
-                if !queries.is_empty() {
-                    let search_info = format!("\n\n🔍 **Searched:** {}", queries.join(", "));
-                    converted_parts.push(Part::Text { text: search_info });
-                }
+            if let Some(queries) = &grounding.web_search_queries
+                && !queries.is_empty()
+            {
+                let search_info = format!("\n\n🔍 **Searched:** {}", queries.join(", "));
+                converted_parts.push(Part::Text { text: search_info });
             }
             if let Some(chunks) = &grounding.grounding_chunks {
                 let sources: Vec<String> = chunks

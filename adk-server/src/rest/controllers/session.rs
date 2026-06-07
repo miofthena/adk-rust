@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct SessionController {
@@ -106,7 +106,10 @@ pub async fn create_session(
             state: std::collections::HashMap::new(),
         })
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            error!(error = %e, "session create failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let response = SessionController::session_to_response(session.as_ref());
 
@@ -132,7 +135,10 @@ pub async fn get_session(
             after: None,
         })
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .map_err(|e| {
+            error!(error = %e, "session get failed");
+            StatusCode::NOT_FOUND
+        })?;
 
     Ok(Json(SessionController::session_to_response(session.as_ref())))
 }
@@ -148,7 +154,10 @@ pub async fn delete_session(
         .session_service
         .delete(adk_session::DeleteRequest { app_name, user_id, session_id })
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            error!(error = %e, "session delete failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -236,7 +245,10 @@ pub async fn create_session_from_path(
             },
         })
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            error!(error = %e, "session create from path failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(SessionController::session_to_response(session.as_ref())))
 }
@@ -260,7 +272,10 @@ pub async fn get_session_from_path(
             after: None,
         })
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .map_err(|e| {
+            error!(error = %e, "session get from path failed");
+            StatusCode::NOT_FOUND
+        })?;
 
     Ok(Json(SessionController::session_to_response(session.as_ref())))
 }
@@ -278,7 +293,10 @@ pub async fn delete_session_from_path(
         .session_service
         .delete(adk_session::DeleteRequest { app_name: params.app_name, user_id, session_id })
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            error!(error = %e, "session delete from path failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -303,7 +321,7 @@ pub async fn list_sessions(
         })
         .await
         .map_err(|e| {
-            tracing::error!("Failed to list sessions: {:?}", e);
+            error!(error = %e, "session list failed");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

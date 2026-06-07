@@ -258,7 +258,7 @@ impl Runner {
         let session_token = CancellationToken::new();
         let session_id_str = session_id.as_str().to_string();
         {
-            let mut sessions = self.active_sessions.lock().unwrap();
+            let mut sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
             sessions.insert(session_id_str.clone(), session_token.clone());
         }
         let active_sessions = self.active_sessions.clone();
@@ -294,7 +294,7 @@ impl Runner {
             }
             impl Drop for SessionCleanup {
                 fn drop(&mut self) {
-                    let mut sessions = self.active_sessions.lock().unwrap();
+                    let mut sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
                     sessions.remove(&self.session_id);
                 }
             }
@@ -1082,7 +1082,7 @@ impl Runner {
     /// let mut stream = runner.run(user_id, session_id, new_content).await?;
     /// ```
     pub fn interrupt(&self, session_id: &str) -> bool {
-        let sessions = self.active_sessions.lock().unwrap();
+        let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(token) = sessions.get(session_id) {
             tracing::info!(session.id = session_id, "interrupting running agent");
             token.cancel();
@@ -1095,7 +1095,7 @@ impl Runner {
 
     /// Returns the session IDs of all currently running agent executions.
     pub fn active_session_ids(&self) -> Vec<String> {
-        let sessions = self.active_sessions.lock().unwrap();
+        let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.keys().cloned().collect()
     }
 

@@ -149,10 +149,10 @@ pub fn verify_signature(payload: &[u8], secret: &str, signature: &str) -> bool {
         HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
     mac.update(payload);
 
-    if let Some(hex_sig) = signature.strip_prefix("sha256=") {
-        if let Ok(sig_bytes) = hex::decode(hex_sig) {
-            return mac.verify_slice(&sig_bytes).is_ok();
-        }
+    if let Some(hex_sig) = signature.strip_prefix("sha256=")
+        && let Ok(sig_bytes) = hex::decode(hex_sig)
+    {
+        return mac.verify_slice(&sig_bytes).is_ok();
     }
     false
 }

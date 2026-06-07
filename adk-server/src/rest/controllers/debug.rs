@@ -101,10 +101,10 @@ pub async fn get_session_traces(
         let traces = exporter.get_session_trace(&session_id);
         if let Some(context) = request_context.as_ref() {
             for trace in &traces {
-                if let Some(owner) = trace.get("adk.user_id") {
-                    if owner != &context.user_id {
-                        return Err(StatusCode::FORBIDDEN);
-                    }
+                if let Some(owner) = trace.get("adk.user_id")
+                    && owner != &context.user_id
+                {
+                    return Err(StatusCode::FORBIDDEN);
                 }
             }
         }
@@ -155,22 +155,22 @@ pub async fn get_event(
 
         // Find a trace with matching event_id
         for attrs in traces {
-            if let Some(stored_event_id) = attrs.get("gcp.vertex.agent.event_id") {
-                if stored_event_id == &event_id {
-                    // Found matching trace - return event-like structure
-                    let invocation_id =
-                        attrs.get("gcp.vertex.agent.invocation_id").cloned().unwrap_or_default();
+            if let Some(stored_event_id) = attrs.get("gcp.vertex.agent.event_id")
+                && stored_event_id == &event_id
+            {
+                // Found matching trace - return event-like structure
+                let invocation_id =
+                    attrs.get("gcp.vertex.agent.invocation_id").cloned().unwrap_or_default();
 
-                    return Ok(Json(serde_json::json!({
-                        "id": event_id,
-                        "invocationId": invocation_id,
-                        "appName": app_name,
-                        "sessionId": session_id,
-                        "attributes": attrs,
-                        "gcp.vertex.agent.llm_request": attrs.get("gcp.vertex.agent.llm_request"),
-                        "gcp.vertex.agent.llm_response": attrs.get("gcp.vertex.agent.llm_response")
-                    })));
-                }
+                return Ok(Json(serde_json::json!({
+                    "id": event_id,
+                    "invocationId": invocation_id,
+                    "appName": app_name,
+                    "sessionId": session_id,
+                    "attributes": attrs,
+                    "gcp.vertex.agent.llm_request": attrs.get("gcp.vertex.agent.llm_request"),
+                    "gcp.vertex.agent.llm_response": attrs.get("gcp.vertex.agent.llm_response")
+                })));
             }
         }
     }

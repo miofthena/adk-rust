@@ -488,16 +488,14 @@ impl RustSandboxExecutor {
             .output()
             .await;
 
-        if let Ok(output) = output {
-            if output.status.success() {
-                if let Ok(metadata) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                    if let Some(target_dir) = metadata["target_directory"].as_str() {
-                        let deps_dir = PathBuf::from(target_dir).join("debug").join("deps");
-                        if let Some(rlib) = find_rlib_in_dir(&deps_dir, "serde_json").await {
-                            return Ok(Some(rlib));
-                        }
-                    }
-                }
+        if let Ok(output) = output
+            && output.status.success()
+            && let Ok(metadata) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            && let Some(target_dir) = metadata["target_directory"].as_str()
+        {
+            let deps_dir = PathBuf::from(target_dir).join("debug").join("deps");
+            if let Some(rlib) = find_rlib_in_dir(&deps_dir, "serde_json").await {
+                return Ok(Some(rlib));
             }
         }
 
@@ -522,12 +520,12 @@ async fn find_rlib_in_dir(dir: &std::path::Path, crate_name: &str) -> Option<Pat
     while let Ok(Some(entry)) = entries.next_entry().await {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
-        if name_str.starts_with(&prefix) && name_str.ends_with(".rlib") {
-            if let Ok(metadata) = entry.metadata().await {
-                if let Ok(modified) = metadata.modified() {
-                    rlibs.push((entry.path(), modified));
-                }
-            }
+        if name_str.starts_with(&prefix)
+            && name_str.ends_with(".rlib")
+            && let Ok(metadata) = entry.metadata().await
+            && let Ok(modified) = metadata.modified()
+        {
+            rlibs.push((entry.path(), modified));
         }
     }
 

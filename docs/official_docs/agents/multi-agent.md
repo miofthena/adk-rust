@@ -2,6 +2,27 @@
 
 Build sophisticated applications by composing specialized agents into teams.
 
+### Agent Hierarchy Overview
+
+```mermaid
+graph TB
+    User((User)) --> Coordinator
+
+    subgraph "Multi-Agent System"
+        Coordinator["Coordinator Agent<br/>(Routes requests)"]
+        Coordinator -->|transfer_to_agent| Billing["Billing Agent"]
+        Coordinator -->|transfer_to_agent| Support["Support Agent"]
+        Coordinator -->|transfer_to_agent| Sales["Sales Agent"]
+        
+        Support -->|transfer_to_agent| L2["L2 Specialist"]
+    end
+
+    Billing --> LLM1["LLM"]
+    Support --> LLM2["LLM"]
+    Sales --> LLM3["LLM"]
+    L2 --> LLM4["LLM"]
+```
+
 ## What You'll Build
 
 In this guide, you'll create a **Customer Service System** where a coordinator routes queries to specialists:

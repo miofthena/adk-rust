@@ -39,7 +39,7 @@ RUST_LOG=debug cargo run --manifest-path examples/time_travel/Cargo.toml
 
 ```
 ╔════════════════════════════════════════════╗
-║  Time Travel — ADK-Rust v0.8.0            ║
+║  Time Travel — ADK-Rust v1.0            ║
 ╚════════════════════════════════════════════╝
 
   ✓ GOOGLE_API_KEY loaded (39 chars)

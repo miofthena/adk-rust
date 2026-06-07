@@ -41,9 +41,8 @@ help:
 	@echo "Documentation:"
 	@echo "  make docs         - Generate documentation"
 	@echo ""
-	@echo "Note: adk-mistralrs is excluded from workspace to allow --all-features"
-	@echo "      to work without CUDA toolkit. Build it explicitly with:"
-	@echo "      make build-mistralrs"
+	@echo "Note: adk-mistralrs is a workspace member. GPU features (cuda, metal) are opt-in."
+	@echo "      Build with: cargo build -p adk-mistralrs --features metal"
 
 # ---------------------------------------------------------------------------
 # Setup & environment
@@ -75,7 +74,7 @@ cache-clear:
 build:
 	cargo build --workspace
 
-# Build workspace with all features (safe - adk-mistralrs excluded)
+# Build workspace with all features
 build-all:
 	cargo build --workspace --all-features
 
@@ -111,11 +110,11 @@ examples:
 
 # Build examples with mistralrs (CPU-only)
 examples-mistralrs:
-	cargo build --manifest-path adk-mistralrs/Cargo.toml
+	cargo build -p adk-mistralrs
 
 # Build examples with Metal GPU support (macOS only)
 examples-gpu:
-	cargo build --manifest-path adk-mistralrs/Cargo.toml --features "metal"
+	cargo build -p adk-mistralrs --features "metal"
 
 # Feature-specific builds
 build-openai:
@@ -127,16 +126,16 @@ build-anthropic:
 build-ollama:
 	cargo build -p adk-model --features "ollama"
 
-# mistral.rs builds (excluded from workspace, must build explicitly)
+# mistral.rs builds (workspace member, GPU features opt-in)
 build-mistralrs:
-	cargo build --manifest-path adk-mistralrs/Cargo.toml
+	cargo build -p adk-mistralrs
 
 build-mistralrs-metal:
-	cargo build --manifest-path adk-mistralrs/Cargo.toml --features "metal"
+	cargo build -p adk-mistralrs --features "metal"
 
 build-mistralrs-cuda:
 	@echo "Note: Requires NVIDIA CUDA toolkit installed"
-	cargo build --manifest-path adk-mistralrs/Cargo.toml --features "cuda"
+	cargo build -p adk-mistralrs --features "cuda"
 
 # Generate documentation
 docs:
@@ -144,7 +143,7 @@ docs:
 
 # Run a specific mistralrs example
 run-mistralrs-basic:
-	cargo run --manifest-path adk-mistralrs/Cargo.toml --example mistralrs_basic
+	cargo run -p adk-mistralrs --example mistralrs_basic
 
 run-mistralrs-basic-metal:
-	cargo run --manifest-path adk-mistralrs/Cargo.toml --features metal --example mistralrs_basic
+	cargo run -p adk-mistralrs --features metal --example mistralrs_basic

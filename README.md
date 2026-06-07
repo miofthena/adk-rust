@@ -8,35 +8,63 @@
 ![Rust](https://img.shields.io/badge/rust-1.94%2B-orange.svg)
 [![GitHub Discussions](https://img.shields.io/github/discussions/zavora-ai/adk-rust?style=flat&logo=github&color=5865F2)](https://github.com/zavora-ai/adk-rust/discussions)
 
-> **🚀 v0.9.2 Released!** Composable Template System — 8 base templates, 9 addons, 5 enterprise patterns via `cargo adk new --addon`. Plus: `cargo adk build` (compile without deploying), provider-aware schema normalization, A2A Simple Scaffolding, and security fixes (hickory-proto, openssl, rubato, similar). See [CHANGELOG](CHANGELOG.md) for full details.
+> **🚀 v1.0.0 Released!** First stable release — 39 crates, 130K+ downloads in 6 months, semver stability commitment, all former Beta crates promoted to Stable. Plus: `adk-bench` benchmarking framework (4.6× faster cold start vs Python), authoritative `ROADMAP.md`, and security hardening. See [CHANGELOG](CHANGELOG.md) for full details.
 >
 > **Contributors:** Many thanks to [@mikefaille](https://github.com/mikefaille) — AdkIdentity design, realtime audio, LiveKit bridge, skill system. [@rohan-panickar](https://github.com/rohan-panickar) — OpenAI-compatible providers, xAI, multimodal content. [@dhruv-pant](https://github.com/dhruv-pant) — Gemini service account auth. [@tomtom215](https://github.com/tomtom215) — A2A Protocol v1.0.0 types crate ([a2a-protocol-types](https://crates.io/crates/a2a-protocol-types)), Foundation-verified wire types powering our A2A v1 layer. [@danielsan](https://github.com/danielsan) — Google deps issue & PR (#181, #203), RAG crash report (#205). [@CodingFlow](https://github.com/CodingFlow) — Gemini 3 thinking level, global endpoint, citationSources (#177, #178, #179). [@ctylx](https://github.com/ctylx) — skill discovery fix (#204). [@poborin](https://github.com/poborin) — project config proposal (#176). [@chillin-capybara](https://github.com/chillin-capybara) — ACP integration, adk-acp crate. [@baotao2006](https://github.com/baotao2006) — UTF-8 boundary audit, CJK search/skill/eval fixes (#349, #357). [Get started →](https://github.com/zavora-ai/adk-rust/wiki/quickstart)
 >
-> **Announcements:** ADK-Rust Roadmap launched for 2026, we welcome suggestions, comments and ideas. ADK Playground launched! You can now run 70+ ADK-Rust AI Agents online for free. Compile and click. No login, no install. https://playground.adk-rust.com (https://playground.adk-rust.com) And many more discussions, feel free to discuss: [![GitHub Discussions](https://img.shields.io/github/discussions/zavora-ai/adk-rust?style=flat&logo=github&color=5865F2)](https://github.com/zavora-ai/adk-rust/discussions)
+> **Announcements:** ADK-Rust Roadmap launched for 2026, we welcome suggestions, comments and ideas. ADK Playground launched! You can now run 70+ ADK-Rust AI Agents online for free. Compile and click. No login, no install. https://playground.adk-rust.com And many more discussions, feel free to discuss: [![GitHub Discussions](https://img.shields.io/github/discussions/zavora-ai/adk-rust?style=flat&logo=github&color=5865F2)](https://github.com/zavora-ai/adk-rust/discussions)
 
 ---
 
-### 🎧 Rust & Beyond Podcast — Episode 1: What is ADK-Rust?
+### 🎬 Rust & Beyond Podcast — Episode 2: v1.0.0 Launch
 
-**Listen to ADK-Rust explain itself.** This podcast episode was generated entirely by ADK-Rust using Gemini 3.1 Flash TTS — two AI hosts, natural voices, zero manual editing.
+**ADK-Rust v1.0.0 — The Stable Foundation.** A deep-dive into what shipped, who built it, and where it's going. 39 crates. 130K downloads. Semver stable. The vision for composable autonomous agents in Rust.
+
+<video controls src="docs/podcast/adk-rust-episode-2.mp4">
+Your browser does not support the video element. <a href="docs/podcast/adk-rust-episode-2.wav">Download Episode 2 (WAV)</a>
+</video>
+
+*10 min 12 sec · Hosts: James (Fenrir) & Ada (Kore) · Video with slides*
+
+> *"We believe the next generation of software will be built by composing autonomous agents, not by writing every line of logic by hand. And we believe Rust is the right language for the runtime those agents live in."* — James, in the episode
+
+<details>
+<summary>Episode highlights</summary>
+
+- **The Numbers** — 130K+ organic downloads, 39 crates, 60+ examples, 4.6× faster than Python ADK
+- **What Stable Means** — Semver contract, every public API locked, migration guides for major bumps
+- **What's New** — Gemini Interactions API, Managed Agent Runtime, lock poison recovery, security hardening
+- **Contributor Tribute** — Naming every contributor and what they built
+- **The Vision** — Playground → Marketplace, Managed Runtime → Hosting Platform, Protocol → Cross-org Standard
+- **Roadmap** — Spatial agents, deeper MCP, AP2 payments, always faster
+
+</details>
+
+<details>
+<summary>Previous episodes</summary>
+
+#### 🎧 Episode 1: What is ADK-Rust?
 
 <video controls src="https://github.com/user-attachments/assets/8b217958-e6b9-4ad6-9e82-e6d6c559efe8">
 Your browser does not support the audio element. <a href="docs/podcast/adk-rust-episode-1.wav">Download Episode 1 (WAV)</a>
 </video>
 
-*2 min 21 sec · Hosts: James (Fenrir) & Ada (Kore)*
+*2 min 21 sec · Generated entirely by ADK-Rust using Gemini 3.1 Flash TTS*
 
-> *"This episode was created using the Gemini 3.1 Flash TTS model through adk-audio. Two speakers, natural voices, all from a Rust script."* — James, in the episode
+</details>
 
 <details>
-<summary>How was this made?</summary>
+<summary>How are these made?</summary>
+
+Episodes are generated using ADK-Rust's own audio capabilities — Chirp3-HD multi-speaker TTS synthesis via `adk-audio`. The script, slide deck (Marp), and synthesized audio segments are concatenated with ffmpeg into a video presentation. Zero manual voice recording.
 
 ```bash
-export GOOGLE_API_KEY=your-key
-cargo run --manifest-path examples/gemini_audio/Cargo.toml --bin generate-podcast
+# Episode 2 assets
+docs/podcast/episode-2-v1-launch-script.md   # Full script
+docs/podcast/episode-2-slides.md             # Marp slide deck
+docs/podcast/adk-rust-episode-2.mp4          # Final video
+docs/podcast/adk-rust-episode-2.wav          # Audio-only
 ```
-
-The script lives in [`examples/gemini_audio/src/podcast.rs`](examples/gemini_audio/src/podcast.rs). It uses `GeminiTts` with multi-speaker `SpeakerConfig` to synthesize a two-host dialogue. The entire pipeline — script, synthesis, WAV encoding — runs in ~60 seconds.
 
 </details>
 
@@ -119,7 +147,7 @@ ADK supports multiple LLM providers with a unified API:
 | xAI (Grok) | `grok-3-mini` | `openai` (preset) |
 | Amazon Bedrock | `anthropic.claude-sonnet-4-20250514-v1:0` | `bedrock` |
 | Azure AI Inference | (endpoint-specific) | `azure-ai` |
-| mistral.rs | **Gemma 4**, Phi-3, Llama, Qwen 3.5, Voxtral, FLUX | git dependency |
+| mistral.rs | **Gemma 4**, Phi-3, Llama, Qwen 3.5, Voxtral, FLUX | `adk-mistralrs` |
 
 All providers support streaming, function calling, and multimodal inputs (where available).
 
@@ -180,7 +208,7 @@ Built-in tools:
 | `adk-model` | LLM integrations | Gemini, OpenAI, Anthropic, DeepSeek, Groq, Ollama, Bedrock, Azure AI + OpenAI-compatible presets (Fireworks, Together, Mistral, Perplexity, Cerebras, SambaNova, xAI) |
 | `adk-gemini` | Gemini client | Google Gemini API client with streaming and multimodal support |
 | `adk-anthropic` | Anthropic client | Dedicated Anthropic API client with streaming, thinking, caching, citations, vision, PDF, pricing |
-| `adk-mistralrs` | Native local inference | mistral.rs v0.8.0 — **Gemma 4**, Qwen 3.5, Voxtral, ISQ/MXFP4 quantization, LoRA adapters (git-only) |
+| `adk-mistralrs` | Native local inference | mistral.rs v0.8 — **Gemma 4**, Qwen 3.5, Voxtral, ISQ/MXFP4 quantization, LoRA adapters |
 | `adk-tool` | Tool system and extensibility | `FunctionTool`, Google Search, MCP protocol with elicitation, schema validation |
 | `adk-session` | Session and state management | SQLite/in-memory backends, conversation history, state persistence |
 | `adk-artifact` | Artifact storage system | File-based storage, MIME type handling, image/PDF/video support |
@@ -201,6 +229,8 @@ Built-in tools:
 | `adk-auth` | Access control | Role-based permissions, declarative scope-based security, SSO/OAuth, audit logging |
 | `adk-sandbox` | Sandboxed code execution | Process/WASM backends, OS-level sandbox profiles (Seatbelt, bubblewrap, AppContainer) |
 | `adk-telemetry` | Observability | Structured logging, OpenTelemetry tracing, span helpers |
+| `adk-managed` | Managed agent runtime (Experimental) | Provider-neutral durable agent execution, checkpointing, event replay |
+| `adk-enterprise` | Enterprise client SDK (Experimental) | HTTP/SSE client for managed agent service, zero runtime deps |
 
 > **Extracted to standalone repos:** [adk-ui](https://github.com/zavora-ai/adk-ui) (dynamic UI generation), [adk-studio](https://github.com/zavora-ai/adk-studio) (visual agent builder), [adk-playground](https://github.com/zavora-ai/adk-playground) (120+ examples).
 
@@ -220,7 +250,7 @@ cargo adk new my-agent --template a2a     # A2A protocol agent
 cargo adk new my-agent --template graph   # graph workflow agent
 cargo adk new my-agent --template realtime # realtime voice agent
 
-# Compose with addons (v0.9.2+)
+# Compose with addons
 cargo adk new my-agent --template tools --addon telemetry --addon docker
 cargo adk new my-agent --template api --addon ci --addon monitoring
 
@@ -787,11 +817,10 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-**Note**: `adk-mistralrs` is not on crates.io due to git dependencies. Add via:
+`adk-mistralrs` is published to crates.io as a workspace member. GPU features are opt-in:
 ```toml
-adk-mistralrs = { git = "https://github.com/zavora-ai/adk-rust" }
-# With Metal: features = ["metal"]
-# With CUDA: features = ["cuda"]
+adk-mistralrs = { version = "1.0.0", features = ["metal"] }  # macOS Apple Silicon
+# Or: features = ["cuda"] for NVIDIA GPU
 ```
 
 **Features**: Gemma 4 multimodal, ISQ/MXFP4 quantization, PagedAttention with prefix caching, multi-GPU splitting, LoRA/X-LoRA adapters, vision/speech/diffusion models, MCP integration.
@@ -820,7 +849,7 @@ make help
 # Build all crates (CPU-only, works on all systems)
 make build
 
-# Build with all features (safe - adk-mistralrs excluded)
+# Build with all features
 make build-all
 
 # Build all examples
@@ -848,30 +877,17 @@ cargo check --workspace --examples
 
 ### Local LLM with mistral.rs
 
-`adk-mistralrs` is excluded from the workspace by default to allow `--all-features` to work without CUDA toolkit. Build it explicitly:
+`adk-mistralrs` is published to crates.io as a workspace member. GPU features (`cuda`, `metal`) are opt-in:
 
 ```bash
-# CPU-only (works on all systems)
-make build-mistralrs
-# or: cargo build --manifest-path adk-mistralrs/Cargo.toml
+# Build with default features (CPU-only)
+cargo build -p adk-mistralrs
 
 # macOS with Apple Silicon (Metal GPU)
-make build-mistralrs-metal
-# or: cargo build --manifest-path adk-mistralrs/Cargo.toml --features metal
+cargo build -p adk-mistralrs --features metal
 
 # NVIDIA GPU (requires CUDA toolkit)
-make build-mistralrs-cuda
-# or: cargo build --manifest-path adk-mistralrs/Cargo.toml --features cuda
-```
-
-### Running mistralrs Examples
-
-```bash
-# Build the mistral.rs crate explicitly
-cargo build --manifest-path adk-mistralrs/Cargo.toml
-
-# With Metal GPU acceleration (macOS)
-cargo build --manifest-path adk-mistralrs/Cargo.toml --features metal
+cargo build -p adk-mistralrs --features cuda
 ```
 
 ## Use as Library
@@ -1023,7 +1039,7 @@ Contributions welcome! Please open an issue or pull request on GitHub.
 
 ## Roadmap
 
-**v0.9.2** (current) — composable templates, cargo adk build, security fixes:
+**v1.0.0** (current) — first stable release:
 - **Composable Template System** — 8 base templates, 9 addons, 5 enterprise patterns via `cargo adk new --addon`.
 - **Cargo Adk Build** — compile-without-deploy subcommand for pre-deployment verification.
 - **A2A Simple Scaffolding** — `A2aServer::quick_start`, `A2aServer::builder`, and `cargo adk new --template a2a`.

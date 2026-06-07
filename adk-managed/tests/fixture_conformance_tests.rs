@@ -259,11 +259,8 @@ async fn run_fixture_scripted(fixture: &Fixture) -> Vec<String> {
 
     // Collect all broadcast events.
     let mut event_types = Vec::new();
-    loop {
-        match broadcast_rx.try_recv() {
-            Ok(event) => event_types.push(event_type_string(&event).to_string()),
-            Err(_) => break,
-        }
+    while let Ok(event) = broadcast_rx.try_recv() {
+        event_types.push(event_type_string(&event).to_string());
     }
 
     event_types
@@ -402,23 +399,18 @@ async fn test_seq_monotonicity_in_fixture_run() {
 
     // Collect seqs and verify monotonicity.
     let mut seqs = Vec::new();
-    loop {
-        match broadcast_rx.try_recv() {
-            Ok(event) => {
-                let seq = match &event {
-                    SessionEvent::StatusRunning { seq } => *seq,
-                    SessionEvent::Message { seq, .. } => *seq,
-                    SessionEvent::StatusIdle { seq, .. } => *seq,
-                    SessionEvent::ToolUse { seq, .. } => *seq,
-                    SessionEvent::CustomToolUse { seq, .. } => *seq,
-                    SessionEvent::McpToolUse { seq, .. } => *seq,
-                    SessionEvent::Error { seq, .. } => *seq,
-                    _ => continue,
-                };
-                seqs.push(seq);
-            }
-            Err(_) => break,
-        }
+    while let Ok(event) = broadcast_rx.try_recv() {
+        let seq = match &event {
+            SessionEvent::StatusRunning { seq } => *seq,
+            SessionEvent::Message { seq, .. } => *seq,
+            SessionEvent::StatusIdle { seq, .. } => *seq,
+            SessionEvent::ToolUse { seq, .. } => *seq,
+            SessionEvent::CustomToolUse { seq, .. } => *seq,
+            SessionEvent::McpToolUse { seq, .. } => *seq,
+            SessionEvent::Error { seq, .. } => *seq,
+            _ => continue,
+        };
+        seqs.push(seq);
     }
 
     assert!(!seqs.is_empty(), "should have collected events");

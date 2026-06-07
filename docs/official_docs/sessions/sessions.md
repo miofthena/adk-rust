@@ -124,6 +124,26 @@ let request = DeleteRequest {
 
 ## SessionService Implementations
 
+### Choosing a Backend
+
+```mermaid
+flowchart TD
+    Start["Choose Session Backend"] --> Q1{"Need persistence?"}
+    Q1 -->|No| InMemory["InMemorySessionService<br/>Fast, ephemeral"]
+    Q1 -->|Yes| Q2{"Scale requirements?"}
+    
+    Q2 -->|"Single server"| SQLite["SQLite<br/>File-based, zero config"]
+    Q2 -->|"Multi-server"| Q3{"Latency priority?"}
+    
+    Q3 -->|"Sub-ms reads"| Redis["Redis<br/>In-memory, TTL support"]
+    Q3 -->|"Durability"| Q4{"Existing infra?"}
+    
+    Q4 -->|PostgreSQL| Postgres["PostgreSQL<br/>ACID, JSONB state"]
+    Q4 -->|MongoDB| Mongo["MongoDB<br/>Document-native"]
+    Q4 -->|Google Cloud| Firestore["Firestore<br/>Serverless, auto-scale"]
+    Q4 -->|Graph queries| Neo4j["Neo4j<br/>Relationship-rich state"]
+```
+
 ADK-Rust provides multiple session service implementations:
 
 | Implementation | Feature Flag | Use Case |

@@ -76,22 +76,17 @@ impl Tool for ScreenshotTool {
 
         // Optionally save to artifacts
         let mut saved = false;
-        if save_to_artifacts {
-            if let Some(artifacts) = ctx.artifacts() {
-                use base64::Engine;
-                let image_data =
-                    base64::engine::general_purpose::STANDARD.decode(&base64_image).map_err(
-                        |e| adk_core::AdkError::tool(format!("Failed to decode base64: {}", e)),
-                    )?;
+        if save_to_artifacts && let Some(artifacts) = ctx.artifacts() {
+            use base64::Engine;
+            let image_data = base64::engine::general_purpose::STANDARD
+                .decode(&base64_image)
+                .map_err(|e| adk_core::AdkError::tool(format!("Failed to decode base64: {}", e)))?;
 
-                let part = adk_core::Part::InlineData {
-                    mime_type: "image/png".to_string(),
-                    data: image_data,
-                };
+            let part =
+                adk_core::Part::InlineData { mime_type: "image/png".to_string(), data: image_data };
 
-                artifacts.save(artifact_name, &part).await?;
-                saved = true;
-            }
+            artifacts.save(artifact_name, &part).await?;
+            saved = true;
         }
 
         Ok(json!({

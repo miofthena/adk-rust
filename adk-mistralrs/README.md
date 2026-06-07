@@ -10,26 +10,26 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-adk-mistralrs = "0.10"
+adk-mistralrs = "1.0"
 ```
 
 ### With Hardware Acceleration
 
 ```toml
 # macOS with Metal
-adk-mistralrs = { version = "0.10", features = ["metal"] }
+adk-mistralrs = { version = "1.0", features = ["metal"] }
 
 # NVIDIA GPU with CUDA
-adk-mistralrs = { version = "0.10", features = ["cuda"] }
+adk-mistralrs = { version = "1.0", features = ["cuda"] }
 
 # CUDA with Flash Attention
-adk-mistralrs = { version = "0.10", features = ["flash-attn"] }
+adk-mistralrs = { version = "1.0", features = ["flash-attn"] }
 
 # Multi-GPU via NCCL
-adk-mistralrs = { version = "0.10", features = ["nccl"] }
+adk-mistralrs = { version = "1.0", features = ["nccl"] }
 
 # Intel MKL
-adk-mistralrs = { version = "0.10", features = ["mkl"] }
+adk-mistralrs = { version = "1.0", features = ["mkl"] }
 ```
 
 ## Features
@@ -50,9 +50,9 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-adk-core = "0.10"
-adk-agent = "0.10"
-adk-mistralrs = "0.10"
+adk-core = "1.0"
+adk-agent = "1.0"
+adk-mistralrs = "1.0"
 ```
 
 ### Feature Flags
@@ -486,7 +486,7 @@ let model = MistralRsModel::new(config).await?;
 
 ## Publishing
 
-As of v0.10.0, `adk-mistralrs` is publishable to crates.io. The blocker (mistral.rs using git dependencies) was resolved when mistral.rs published v0.8.0 to crates.io in April 2026.
+`adk-mistralrs` is published to [crates.io](https://crates.io/crates/adk-mistralrs) as a workspace member. GPU features (`cuda`, `metal`) are opt-in.
 
 ## Examples
 

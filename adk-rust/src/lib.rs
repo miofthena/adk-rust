@@ -1144,12 +1144,12 @@ pub async fn run(instructions: &str, input: &str) -> Result<String> {
 
         #[cfg(feature = "gemini")]
         {
-            if result.is_none() {
-                if let Ok(key) = std::env::var("GOOGLE_API_KEY") {
-                    let m = Arc::new(model::GeminiModel::new(key, "gemini-2.5-flash")?);
-                    let cc: Arc<dyn CacheCapable> = m.clone();
-                    result = Some((m, Some(cc)));
-                }
+            if result.is_none()
+                && let Ok(key) = std::env::var("GOOGLE_API_KEY")
+            {
+                let m = Arc::new(model::GeminiModel::new(key, "gemini-2.5-flash")?);
+                let cc: Arc<dyn CacheCapable> = m.clone();
+                result = Some((m, Some(cc)));
             }
         }
 

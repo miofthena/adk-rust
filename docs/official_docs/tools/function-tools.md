@@ -17,6 +17,32 @@ Function tools let you give agents abilities beyond conversation - calling APIs,
 
 ---
 
+### Tool Execution Pipeline
+
+```mermaid
+sequenceDiagram
+    participant LLM as Model Provider
+    participant Agent as LlmAgent
+    participant Dispatch as Tool Dispatch
+    participant Schema as Schema Validation
+    participant Tool as Tool::execute()
+
+    LLM->>Agent: Response with tool_call(name, args_json)
+    Agent->>Dispatch: Resolve tool by name
+    Dispatch->>Schema: Validate args against parameters_schema
+    
+    alt Validation passes
+        Schema->>Tool: execute(ctx, validated_args)
+        Tool-->>Agent: Result (JSON Value)
+        Agent->>LLM: Send tool_result back
+    else Validation fails
+        Schema-->>Agent: ValidationError
+        Agent->>LLM: Error message as tool_result
+    end
+```
+
+---
+
 ## Recommended: `#[tool]` Macro
 
 The fastest way to create tools. The macro reads your doc comment as the description and derives the JSON schema from your args type:

@@ -63,7 +63,7 @@ impl InMemorySessionService {
 
     /// Rewind a session to before all events (remove all events and reset state).
     async fn rewind_to_empty(&self, session_id: &str) -> Result<Box<dyn Session>> {
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
         let data = sessions
             .values_mut()
             .find(|d| d.identity.session_id.as_ref() == session_id)
@@ -79,11 +79,11 @@ impl InMemorySessionService {
         let updated_at = data.updated_at;
         drop(sessions);
 
-        let app_state_lock = self.app_state.read().unwrap();
+        let app_state_lock = self.app_state.read().unwrap_or_else(|e| e.into_inner());
         let app_state = app_state_lock.get(&app_name).cloned().unwrap_or_default();
         drop(app_state_lock);
 
-        let user_state_lock = self.user_state.read().unwrap();
+        let user_state_lock = self.user_state.read().unwrap_or_else(|e| e.into_inner());
         let user_state = user_state_lock
             .get(&app_name)
             .and_then(|m| m.get(&user_id))
@@ -117,13 +117,13 @@ impl SessionService for InMemorySessionService {
 
         let (app_delta, user_delta, session_state) = Self::extract_state_deltas(&req.state);
 
-        let mut app_state_lock = self.app_state.write().unwrap();
+        let mut app_state_lock = self.app_state.write().unwrap_or_else(|e| e.into_inner());
         let app_state = app_state_lock.entry(req.app_name.clone()).or_default();
         app_state.extend(app_delta);
         let app_state_clone = app_state.clone();
         drop(app_state_lock);
 
-        let mut user_state_lock = self.user_state.write().unwrap();
+        let mut user_state_lock = self.user_state.write().unwrap_or_else(|e| e.into_inner());
         let user_map = user_state_lock.entry(req.app_name.clone()).or_default();
         let user_state = user_map.entry(req.user_id.clone()).or_default();
         user_state.extend(user_delta);
@@ -139,7 +139,7 @@ impl SessionService for InMemorySessionService {
             updated_at: Utc::now(),
         };
 
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
         sessions.insert(identity.clone(), data);
         drop(sessions);
 
@@ -154,16 +154,16 @@ impl SessionService for InMemorySessionService {
     async fn get(&self, req: GetRequest) -> Result<Box<dyn Session>> {
         let identity = Self::make_identity(&req.app_name, &req.user_id, &req.session_id)?;
 
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
         let data = sessions
             .get(&identity)
             .ok_or_else(|| adk_core::AdkError::session("session not found"))?;
 
-        let app_state_lock = self.app_state.read().unwrap();
+        let app_state_lock = self.app_state.read().unwrap_or_else(|e| e.into_inner());
         let app_state = app_state_lock.get(&req.app_name).cloned().unwrap_or_default();
         drop(app_state_lock);
 
-        let user_state_lock = self.user_state.read().unwrap();
+        let user_state_lock = self.user_state.read().unwrap_or_else(|e| e.into_inner());
         let user_state = user_state_lock
             .get(&req.app_name)
             .and_then(|m| m.get(&req.user_id))
@@ -191,7 +191,7 @@ impl SessionService for InMemorySessionService {
     }
 
     async fn list(&self, req: ListRequest) -> Result<Vec<Box<dyn Session>>> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
         let offset = req.offset.unwrap_or(0);
         let limit = req.limit.unwrap_or(usize::MAX);
         let mut result = Vec::new();
@@ -227,13 +227,13 @@ impl SessionService for InMemorySessionService {
     async fn delete(&self, req: DeleteRequest) -> Result<()> {
         let identity = Self::make_identity(&req.app_name, &req.user_id, &req.session_id)?;
 
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
         sessions.remove(&identity);
         Ok(())
     }
 
     async fn delete_all_sessions(&self, app_name: &str, user_id: &str) -> Result<()> {
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
         sessions.retain(|_, data| {
             !(data.identity.app_name.as_ref() == app_name
                 && data.identity.user_id.as_ref() == user_id)
@@ -245,7 +245,7 @@ impl SessionService for InMemorySessionService {
         event.actions.state_delta.retain(|k, _| !k.starts_with(KEY_PREFIX_TEMP));
 
         let (app_name, user_id, app_delta, user_delta, _session_delta) = {
-            let mut sessions = self.sessions.write().unwrap();
+            let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
             let data = sessions
                 .values_mut()
                 .find(|d| d.identity.session_id.as_ref() == session_id)
@@ -268,13 +268,13 @@ impl SessionService for InMemorySessionService {
         };
 
         if !app_delta.is_empty() {
-            let mut app_state_lock = self.app_state.write().unwrap();
+            let mut app_state_lock = self.app_state.write().unwrap_or_else(|e| e.into_inner());
             let app_state = app_state_lock.entry(app_name.clone()).or_default();
             app_state.extend(app_delta);
         }
 
         if !user_delta.is_empty() {
-            let mut user_state_lock = self.user_state.write().unwrap();
+            let mut user_state_lock = self.user_state.write().unwrap_or_else(|e| e.into_inner());
             let user_map = user_state_lock.entry(app_name).or_default();
             let user_state = user_map.entry(user_id).or_default();
             user_state.extend(user_delta);
@@ -290,7 +290,7 @@ impl SessionService for InMemorySessionService {
         let identity = req.identity;
 
         let (app_name_str, user_id_str, app_delta, user_delta) = {
-            let mut sessions = self.sessions.write().unwrap();
+            let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
             let data = sessions
                 .get_mut(&identity)
                 .ok_or_else(|| adk_core::AdkError::session("session not found"))?;
@@ -311,13 +311,13 @@ impl SessionService for InMemorySessionService {
         };
 
         if !app_delta.is_empty() {
-            let mut app_state_lock = self.app_state.write().unwrap();
+            let mut app_state_lock = self.app_state.write().unwrap_or_else(|e| e.into_inner());
             let app_state = app_state_lock.entry(app_name_str.clone()).or_default();
             app_state.extend(app_delta);
         }
 
         if !user_delta.is_empty() {
-            let mut user_state_lock = self.user_state.write().unwrap();
+            let mut user_state_lock = self.user_state.write().unwrap_or_else(|e| e.into_inner());
             let user_map = user_state_lock.entry(app_name_str).or_default();
             let user_state = user_map.entry(user_id_str).or_default();
             user_state.extend(user_delta);
@@ -327,16 +327,16 @@ impl SessionService for InMemorySessionService {
     }
 
     async fn get_for_identity(&self, identity: &AdkIdentity) -> Result<Box<dyn Session>> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
         let data = sessions
             .get(identity)
             .ok_or_else(|| adk_core::AdkError::session("session not found"))?;
 
-        let app_state_lock = self.app_state.read().unwrap();
+        let app_state_lock = self.app_state.read().unwrap_or_else(|e| e.into_inner());
         let app_state = app_state_lock.get(identity.app_name.as_ref()).cloned().unwrap_or_default();
         drop(app_state_lock);
 
-        let user_state_lock = self.user_state.read().unwrap();
+        let user_state_lock = self.user_state.read().unwrap_or_else(|e| e.into_inner());
         let user_state = user_state_lock
             .get(identity.app_name.as_ref())
             .and_then(|m| m.get(identity.user_id.as_ref()))
@@ -355,13 +355,13 @@ impl SessionService for InMemorySessionService {
     }
 
     async fn delete_for_identity(&self, identity: &AdkIdentity) -> Result<()> {
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
         sessions.remove(identity);
         Ok(())
     }
 
     async fn rewind(&self, session_id: &str, target_event_id: &str) -> Result<Box<dyn Session>> {
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
 
         // Find the session by session_id
         let data = sessions
@@ -400,11 +400,11 @@ impl SessionService for InMemorySessionService {
         drop(sessions);
 
         // Merge with app and user state for the returned session
-        let app_state_lock = self.app_state.read().unwrap();
+        let app_state_lock = self.app_state.read().unwrap_or_else(|e| e.into_inner());
         let app_state = app_state_lock.get(&app_name).cloned().unwrap_or_default();
         drop(app_state_lock);
 
-        let user_state_lock = self.user_state.read().unwrap();
+        let user_state_lock = self.user_state.read().unwrap_or_else(|e| e.into_inner());
         let user_state = user_state_lock
             .get(&app_name)
             .and_then(|m| m.get(&user_id))
@@ -421,7 +421,7 @@ impl SessionService for InMemorySessionService {
     async fn rewind_steps(&self, session_id: &str, steps: usize) -> Result<Box<dyn Session>> {
         if steps == 0 {
             // Return the session unchanged
-            let sessions = self.sessions.read().unwrap();
+            let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
             let data = sessions
                 .values()
                 .find(|d| d.identity.session_id.as_ref() == session_id)
@@ -435,11 +435,11 @@ impl SessionService for InMemorySessionService {
             let updated_at = data.updated_at;
             drop(sessions);
 
-            let app_state_lock = self.app_state.read().unwrap();
+            let app_state_lock = self.app_state.read().unwrap_or_else(|e| e.into_inner());
             let app_state = app_state_lock.get(&app_name).cloned().unwrap_or_default();
             drop(app_state_lock);
 
-            let user_state_lock = self.user_state.read().unwrap();
+            let user_state_lock = self.user_state.read().unwrap_or_else(|e| e.into_inner());
             let user_state = user_state_lock
                 .get(&app_name)
                 .and_then(|m| m.get(&user_id))
@@ -459,7 +459,7 @@ impl SessionService for InMemorySessionService {
 
         // Read the event count and determine target
         let rewind_target = {
-            let sessions = self.sessions.read().unwrap();
+            let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
             let data = sessions
                 .values()
                 .find(|d| d.identity.session_id.as_ref() == session_id)

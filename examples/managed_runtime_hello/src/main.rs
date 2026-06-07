@@ -152,7 +152,7 @@ fn print_event(index: usize, event: &SessionEvent) {
         SessionEvent::StatusRunning { seq } => {
             println!("  [{index}] status.running  (seq={seq})");
         }
-        SessionEvent::StatusIdle { seq, stop_reason } => {
+        SessionEvent::StatusIdle { seq, stop_reason, .. } => {
             println!("  [{index}] status.idle     (seq={seq}, stop_reason={stop_reason:?})");
         }
         SessionEvent::Message { content, seq } => {

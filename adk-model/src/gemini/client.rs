@@ -2247,6 +2247,7 @@ mod interactions_transport_tests {
             usage: None,
             created: None,
             updated: None,
+            environment_id: None,
         };
 
         let err = interaction_status_to_result(interaction.status)

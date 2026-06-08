@@ -1430,6 +1430,7 @@ mod tests {
             usage: None,
             created: None,
             updated: None,
+            environment_id: None,
         }
     }
 

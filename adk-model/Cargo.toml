@@ -75,9 +75,10 @@ wiremock = "0.6"
 # `Runner` + `LlmAgent` through the Interactions transport. These crates do not
 # depend on `adk-model` in their library graph, so using them as dev-deps here
 # does not introduce a cycle.
-adk-agent = { workspace = true }
-adk-runner = { workspace = true }
-adk-session = { workspace = true }
+# Dev-deps temporarily commented for v1.0.0 publish (circular resolution)
+# adk-agent = { workspace = true }
+# adk-runner = { workspace = true }
+# adk-session = { workspace = true }
 dotenvy = "0.15"
 
 # Examples require the openrouter feature — skip when not enabled.

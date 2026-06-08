@@ -8,7 +8,7 @@ authors.workspace = true
 description = "mistral.rs integration for ADK-Rust - native local LLM inference with Gemma 4, Qwen 3.5, Voxtral, and 50+ model architectures"
 repository.workspace = true
 readme = "README.md"
-keywords = ["ai", "agent", "adk", "mistral", "llm", "local-inference"]
+keywords = ["ai", "agent", "adk", "llm", "local-inference"]
 categories = ["api-bindings", "asynchronous"]
 publish = true  # Now publishable! mistralrs is on crates.io as of v0.8.0
 

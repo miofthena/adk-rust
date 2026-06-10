@@ -27,6 +27,7 @@ pre-commit:
         - "Cargo.toml"
         - "**/Cargo.toml"
         - "Cargo.lock"
+        - "**/Cargo.lock"
       run: cargo fmt --all -- --check
       fail_text: "Formatting check failed. Run `cargo fmt --all` to fix."
     clippy:
@@ -36,6 +37,7 @@ pre-commit:
         - "Cargo.toml"
         - "**/Cargo.toml"
         - "Cargo.lock"
+        - "**/Cargo.lock"
       run: cargo clippy --workspace --all-targets -- -D warnings
       fail_text: "Clippy found warnings. Fix them before committing (zero-warnings policy)."
 
@@ -48,5 +50,6 @@ pre-push:
         - "Cargo.toml"
         - "**/Cargo.toml"
         - "Cargo.lock"
+        - "**/Cargo.lock"
       run: cargo nextest run --workspace
       fail_text: "Tests failed. Fix regressions before pushing."

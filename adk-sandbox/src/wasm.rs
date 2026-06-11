@@ -56,9 +56,7 @@ const MAX_OUTPUT_BYTES: usize = 1_024 * 1_024;
 /// let backend = WasmBackend::new();
 /// assert_eq!(backend.name(), "wasm");
 /// ```
-pub struct WasmBackend {
-    engine: Engine,
-}
+pub struct WasmBackend;
 
 /// Store data combining WASI context with resource limits.
 struct WasmStoreData {
@@ -67,13 +65,25 @@ struct WasmStoreData {
 }
 
 impl WasmBackend {
-    /// Creates a new `WasmBackend` with epoch interruption enabled.
+    /// Creates a new `WasmBackend`.
     pub fn new() -> Self {
+        Self
+    }
+
+    /// Creates a fresh engine with epoch interruption enabled.
+    ///
+    /// Each execution gets its own engine: wasmtime epochs are engine-global,
+    /// so sharing one engine would let any execution's timeout timer (or a
+    /// stale timer from an already-finished execution) trip the epoch
+    /// deadline of every other in-flight execution.
+    fn make_engine() -> Result<Engine, SandboxError> {
         let mut config = wasmtime::Config::new();
         config.epoch_interruption(true);
-        let engine =
-            Engine::new(&config).expect("failed to create wasmtime engine with epoch support");
-        Self { engine }
+        Engine::new(&config).map_err(|e| {
+            SandboxError::ExecutionFailed(format!(
+                "failed to create wasmtime engine with epoch support: {e}"
+            ))
+        })
     }
 
     /// Synchronous WASM execution — runs on a blocking thread.
@@ -229,7 +239,9 @@ impl SandboxBackend for WasmBackend {
             )));
         }
 
-        let engine = self.engine.clone();
+        // A fresh engine per execution keeps epoch deadlines isolated; see
+        // `make_engine` for why the engine must not be shared.
+        let engine = Self::make_engine()?;
 
         // Run WASM execution on a blocking thread so we don't block the
         // async runtime. The epoch timer OS thread fires independently.

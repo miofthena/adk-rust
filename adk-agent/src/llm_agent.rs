@@ -1840,8 +1840,8 @@ impl Agent for LlmAgent {
                 // Enhanced plugins can modify the accumulated model response.
                 // They run after the full response is accumulated (not per-chunk).
                 #[cfg(feature = "enhanced-plugins")]
-                if let Some(epm) = &enhanced_plugin_manager {
-                    if let Some(ref content) = accumulated_content {
+                if let Some(epm) = &enhanced_plugin_manager
+                    && let Some(ref content) = accumulated_content {
                         let response_for_hook = LlmResponse {
                             content: Some(content.clone()),
                             provider_metadata: final_provider_metadata.clone(),
@@ -1860,7 +1860,6 @@ impl Agent for LlmAgent {
                             }
                         }
                     }
-                }
 
                 // After streaming/caching completes, check for function calls in accumulated content
                 let function_call_names: Vec<String> = accumulated_content.as_ref()
@@ -2206,9 +2205,9 @@ impl Agent for LlmAgent {
 
                             // ===== ENHANCED PLUGIN: BEFORE TOOL CALL =====
                             #[cfg(feature = "enhanced-plugins")]
-                            if response_content.is_none() {
-                                if let Some(epm) = &enhanced_plugin_manager {
-                                    if let Some(tool_ref) = tool_map.get(&name) {
+                            if response_content.is_none()
+                                && let Some(epm) = &enhanced_plugin_manager
+                                    && let Some(tool_ref) = tool_map.get(&name) {
                                         match epm.run_before_tool_call(
                                             tool_ref.clone(),
                                             final_args.clone(),
@@ -2246,8 +2245,6 @@ impl Agent for LlmAgent {
                                             }
                                         }
                                     }
-                                }
-                            }
 
                             if response_content.is_none() {
                                 let tool_ctx = Arc::new(ToolCallbackContext::new(
@@ -2537,8 +2534,8 @@ impl Agent for LlmAgent {
                                 // ===== ENHANCED PLUGIN: AFTER TOOL CALL =====
                                 // Enhanced plugins can modify the tool result after legacy callbacks.
                                 #[cfg(feature = "enhanced-plugins")]
-                                if let Some(epm) = &enhanced_plugin_manager {
-                                    if let Some(tool_ref) = &executed_tool {
+                                if let Some(epm) = &enhanced_plugin_manager
+                                    && let Some(tool_ref) = &executed_tool {
                                         // Extract the result value from the response content
                                         let result_value = response_content.parts.iter()
                                             .find_map(|p| {
@@ -2582,7 +2579,6 @@ impl Agent for LlmAgent {
                                             }
                                         }
                                     }
-                                }
                             }
 
                             let escalate_or_skip = tool_actions.escalate || tool_actions.skip_summarization;

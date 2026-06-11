@@ -1,0 +1,87 @@
+# Lefthook configuration — enforces the ADK-Rust Quality Gates locally.
+# See CONTRIBUTING.md "3. Develop with Quality Gates".
+#
+# pre-commit: fast format + lint checks (zero warnings).
+# pre-push:   full test suite before code leaves your machine.
+#
+# The gates run `cargo <tool> --workspace`, which only builds the workspace
+# members — the `adk-*`, `awp-*`, and `cargo-adk` crates plus the root manifest.
+# The standalone `examples/*` crates (and reference/learning dirs) are EXCLUDED
+# from the workspace, so changes there don't affect these gates. The globs are
+# therefore scoped to workspace-member paths only; an example-only change skips
+# every gate.
+#
+# Each gate globs just the inputs that affect it:
+#   - fmt        Rust sources, rustfmt.toml, and the toolchain.
+#   - clippy     also Cargo manifests, the lockfile, .cargo/config.toml, and
+#                .clippy.toml (anything that changes compilation or lints).
+#   - shellcheck shell scripts only. The non-Nix counterpart to the shellcheck
+#                hook in devenv.nix. Lints just the staged scripts. Runs at
+#                --severity=warning so info-level notes (e.g. SC1091 about
+#                sourced files that can't be followed) don't block commits;
+#                real warnings and errors still fail. `publish.sh` is excluded
+#                because it's zsh and shellcheck only supports sh/bash/dash/ksh.
+#   - nextest    mirrors clippy's compile inputs plus .config/nextest.toml.
+#
+# Glob notes (lefthook's matcher): `*` crosses `/`, so `adk-*/*.rs` matches
+# Rust files at any depth under an `adk-*` crate, and patterns are anchored at
+# the path start (so `examples/...` never matches). Workspace members share a
+# single root Cargo.lock — there are no per-member lockfiles to glob.
+#
+# Install hooks once with: lefthook install
+
+pre-commit:
+  parallel: false
+  commands:
+    fmt:
+      tags: format
+      glob:
+        - "adk-*/*.rs"
+        - "awp-*/*.rs"
+        - "cargo-adk/*.rs"
+        - "rustfmt.toml"
+        - "rust-toolchain.toml"
+      run: cargo fmt --all -- --check
+      fail_text: "Formatting check failed. Run `cargo fmt --all` to fix."
+    clippy:
+      tags: lint
+      glob:
+        - "adk-*/*.rs"
+        - "awp-*/*.rs"
+        - "cargo-adk/*.rs"
+        - "adk-*/Cargo.toml"
+        - "awp-*/Cargo.toml"
+        - "cargo-adk/Cargo.toml"
+        - "Cargo.toml"
+        - "Cargo.lock"
+        - ".cargo/config.toml"
+        - "rust-toolchain.toml"
+        - ".clippy.toml"
+      run: cargo clippy --workspace --all-targets -- -D warnings
+      fail_text: "Clippy found warnings. Fix them before committing (zero-warnings policy)."
+    shellcheck:
+      tags: lint
+      glob: "*.sh"
+      exclude:
+        - "publish.sh"
+      run: shellcheck --severity=warning {staged_files}
+      fail_text: "shellcheck found issues. Run `shellcheck --severity=warning <file>` to see them."
+
+pre-push:
+  commands:
+    nextest:
+      tags: test
+      glob:
+        - "adk-*/*.rs"
+        - "awp-*/*.rs"
+        - "cargo-adk/*.rs"
+        - "adk-*/Cargo.toml"
+        - "awp-*/Cargo.toml"
+        - "cargo-adk/Cargo.toml"
+        - "Cargo.toml"
+        - "Cargo.lock"
+        - ".cargo/config.toml"
+        - "rust-toolchain.toml"
+        - ".config/nextest.toml"
+      run: cargo nextest run --workspace
+      fail_text: "Tests failed. Fix regressions before pushing."

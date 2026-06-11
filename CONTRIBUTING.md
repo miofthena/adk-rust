@@ -45,7 +45,14 @@ Branch naming conventions:
 
 ### 3. Develop with Quality Gates
 
-Run these before every commit. CI enforces them — save yourself the round-trip:
+CI enforces three gates: format, lint, and test. The easiest way to catch failures before they reach CI is to let [lefthook](https://github.com/evilmartians/lefthook) run them automatically as git hooks (see [Git Hooks with Lefthook](#git-hooks-with-lefthook)):
+
+- **pre-commit** runs `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets -- -D warnings`, plus `shellcheck --severity=warning` on any staged shell scripts
+- **pre-push** runs `cargo nextest run --workspace`
+
+Once installed, these run on every `git commit` and `git push` — no extra steps required.
+
+Alternatively, run the gates manually before every commit:
 
 ```bash
 cargo fmt --all                                          # Format
@@ -141,6 +148,33 @@ cp .env.example .env
 
 **Important:** Never commit `.env` files, API keys, local paths, or IDE configuration.
 
+### Git Hooks with Lefthook
+
+The repo ships a `lefthook.yml` that wires the [Quality Gates](#quality-gates) into git hooks, so they run automatically:
+
+- **pre-commit** — format check (`cargo fmt --all -- --check`), lint (`cargo clippy --workspace --all-targets -- -D warnings`), and shell-script lint (`shellcheck --severity=warning` on staged `*.sh`, mirroring the shellcheck hook in `devenv.nix`)
+- **pre-push** — the full test suite (`cargo nextest run --workspace`)
+
+The shellcheck gate only runs when shell scripts are staged, and runs at `--severity=warning` so informational notes (e.g. SC1091 about sourced files that can't be followed) don't block commits. `publish.sh` is skipped because it's a zsh script, which shellcheck doesn't support. Install shellcheck with `brew install shellcheck` (macOS) or `apt install shellcheck` (Debian/Ubuntu); `scripts/setup-dev.sh` installs it for you.
+
+Install [lefthook](https://github.com/evilmartians/lefthook):
+
+```bash
+brew install lefthook        # macOS
+# or: cargo install lefthook  # any platform
+# or: npm install -g lefthook # via npm
+```
+
+Then register the hooks in your local clone (run once, from the repo root):
+
+```bash
+lefthook install
+```
+
+From now on, commits run fmt + clippy (and shellcheck on staged shell scripts) and pushes run the test suite. If a gate fails, the commit or push is blocked with guidance on how to fix it.
+
+Need to bypass a hook in an emergency? Use `LEFTHOOK=0 git commit ...` or `git commit --no-verify` — but CI will still enforce the gates, so prefer fixing the issue.
+
 ## Project Structure
 
 ADK-Rust is a Cargo workspace with 32 publishable crates organized by responsibility.
@@ -226,7 +260,7 @@ Every PR must pass these checks. CI enforces them automatically.
 
 ### Quick Validation
 
-Run all three in sequence:
+The simplest option is to install the git hooks (see [Git Hooks with Lefthook](#git-hooks-with-lefthook)) and let them run the gates on commit and push. To validate manually, run all three in sequence:
 
 ```bash
 cargo fmt --all && \

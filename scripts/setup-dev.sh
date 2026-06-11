@@ -17,7 +17,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
+ok() { echo -e "  ${GREEN}✓${NC} $1"; }
 warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
 miss() { echo -e "  ${RED}✗${NC} $1"; }
 
@@ -129,6 +129,50 @@ elif command -v npm &>/dev/null; then
   ok "npm $(npm --version) (pnpm recommended: npm i -g pnpm)"
 else
   miss "npm/pnpm — needed for ADK Studio UI"
+fi
+
+echo ""
+echo "Git hooks (quality gates):"
+
+# Shell-script linter — backs the pre-commit shellcheck gate (see lefthook.yml).
+# devenv users get this for free via git-hooks.hooks; install it here so the
+# non-Nix lefthook path reaches the same parity.
+if command -v shellcheck &>/dev/null; then
+  ok "shellcheck $(shellcheck --version | awk '/^version:/ {print $2}')"
+else
+  miss "shellcheck — shell-script linter for the pre-commit gate"
+  install_pkg shellcheck
+fi
+
+# lefthook — runs fmt + clippy + shellcheck on pre-commit, nextest on pre-push (see lefthook.yml)
+if command -v lefthook &>/dev/null; then
+  ok "lefthook $(lefthook version 2>/dev/null | head -1)"
+else
+  miss "lefthook — git hook runner for the quality gates"
+  install_pkg lefthook
+  # install_pkg is best-effort: it silently no-ops when lefthook isn't in the
+  # platform's default repos (e.g. apt/dnf). Fall back to npm, then warn.
+  if ! $CHECK_ONLY && ! command -v lefthook &>/dev/null && command -v npm &>/dev/null; then
+    echo "  Installing lefthook via npm..."
+    npm install -g lefthook 2>/dev/null || true
+  fi
+  if ! $CHECK_ONLY && ! command -v lefthook &>/dev/null; then
+    warn "could not install lefthook automatically — install it manually: https://lefthook.dev"
+  fi
+fi
+
+# Register the hooks in this clone
+if ! $CHECK_ONLY && command -v lefthook &>/dev/null; then
+  if git rev-parse --git-dir &>/dev/null; then
+    echo "  Registering git hooks..."
+    if lefthook install &>/dev/null; then
+      ok "git hooks installed (pre-commit, pre-push)"
+    else
+      warn "run 'lefthook install' from the repo root to register hooks"
+    fi
+  else
+    warn "not a git repo — run 'lefthook install' from the repo root to register hooks"
+  fi
 fi
 
 echo ""

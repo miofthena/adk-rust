@@ -1,0 +1,9 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Repo-internal task runner (cargo xtask publish) — not published"
+
+[dependencies]
+serde_json = "1"

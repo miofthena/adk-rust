@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""CI check: publish.sh order must satisfy the workspace dependency graph.
+"""CI check: a valid publish order must exist for all publishable crates.
 
-Validates, for every crate in publish.sh's CRATES list:
-  1. All workspace crates are listed (and nothing extra).
-  2. Every normal/build dependency on another workspace crate is published
-     earlier in the sequence.
-  3. Every dev-dependency that carries a version requirement is published
-     earlier too — `cargo publish` resolves versioned dev-deps when generating
-     the package lockfile, so an unpublished one aborts the publish (this is
-     what broke the v1.0.0 release). Path-only dev-deps are stripped at
-     publish and are exempt.
+The publish order itself is computed at runtime by `cargo xtask publish`
+(from cargo metadata), so there is no hand-maintained tier list to validate.
+What can still go wrong — and what this guards — is the graph itself:
+
+  1. A dependency cycle among publishable crates (normal/build deps).
+  2. A *versioned* dev-dependency cycle: `cargo publish` resolves dev-deps
+     with version requirements when generating the package lockfile, so a
+     versioned dev-dep pointing at a crate that can only be published later
+     deadlocks a sequential publish (this broke the v1.0.0 release).
+     Path-only dev-deps are stripped at publish and are exempt — keep
+     internal dev-deps path-only.
 """
 
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -26,46 +27,58 @@ def main() -> None:
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout)
-    members = {p["name"]: p for p in meta["packages"]}
 
-    order = []
-    for line in (ROOT / "publish.sh").read_text().splitlines():
-        s = line.strip()
-        if re.fullmatch(r"(adk-[a-z0-9-]+|awp-types|cargo-adk)", s):
-            order.append(s)
-    pos = {c: i for i, c in enumerate(order)}
+    packages = meta["packages"]
+    publishable = {
+        p["name"] for p in packages
+        if not (isinstance(p.get("publish"), list) and not p["publish"])
+    }
 
-    errors = []
-    missing = set(members) - set(order)
-    extra = set(order) - set(members)
-    for c in sorted(missing):
-        errors.append(f"workspace crate '{c}' is missing from publish.sh")
-    for c in sorted(extra):
-        errors.append(f"publish.sh lists '{c}' which is not a workspace crate")
-
-    for name, p in members.items():
-        if name not in pos:
+    deps: dict[str, set[str]] = {}
+    versioned_dev: list[str] = []
+    for p in packages:
+        name = p["name"]
+        if name not in publishable:
             continue
+        edges = set()
         for d in p["dependencies"]:
-            if d["name"] not in pos or pos[d["name"]] <= pos[name]:
+            if d["name"] not in publishable:
                 continue
-            kind = d["kind"]
-            if kind in (None, "build"):
-                errors.append(
-                    f"{name} ({kind or 'normal'} dep) must come after {d['name']} in publish.sh"
-                )
+            kind = d["kind"] or "normal"
+            if kind in ("normal", "build"):
+                edges.add(d["name"])
             elif kind == "dev" and d["req"] != "*":
-                errors.append(
-                    f"{name} dev-depends on {d['name']} {d['req']} which publishes later — "
-                    f"make the dev-dep path-only or reorder"
+                edges.add(d["name"])
+                versioned_dev.append(
+                    f"{name} dev-depends on {d['name']} {d['req']} — prefer a "
+                    f"path-only dev-dep (no version) so publish order can't deadlock"
                 )
+        deps[name] = edges
 
-    if errors:
-        print(f"check-publish-order: {len(errors)} problem(s):\n", file=sys.stderr)
-        for e in errors:
-            print(f"  {e}", file=sys.stderr)
-        sys.exit(1)
-    print(f"check-publish-order: OK ({len(order)} crates, order fully resolvable)")
+    # Kahn's algorithm: every crate must become publishable eventually.
+    remaining = dict(deps)
+    rounds = 0
+    while remaining:
+        ready = [n for n, ds in remaining.items()
+                 if all(d not in remaining for d in ds)]
+        if not ready:
+            print("check-publish-order: no valid publish order exists — "
+                  f"cycle among: {sorted(remaining)}", file=sys.stderr)
+            for w in versioned_dev:
+                print(f"  note: {w}", file=sys.stderr)
+            sys.exit(1)
+        for n in ready:
+            remaining.pop(n)
+        rounds += 1
+
+    if versioned_dev:
+        print("check-publish-order: order exists, but versioned internal "
+              "dev-deps constrain it:", file=sys.stderr)
+        for w in versioned_dev:
+            print(f"  warning: {w}", file=sys.stderr)
+
+    print(f"check-publish-order: OK ({len(deps)} publishable crates, "
+          f"{rounds} dependency tiers, order computable)")
 
 
 if __name__ == "__main__":

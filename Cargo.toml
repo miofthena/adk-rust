@@ -44,6 +44,9 @@ members = [
     # CLI tools
     "cargo-adk",
 
+    # Repo-internal task runner (publish = false, never published)
+    "xtask",
+
     # Local LLM inference (now publishable - mistralrs on crates.io)
     "adk-mistralrs",
 

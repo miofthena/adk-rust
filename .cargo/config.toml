@@ -80,3 +80,8 @@ protocol = "sparse"
 WILD_INCREMENTAL = "1"
 # We do NOT set CARGO_INCREMENTAL = "0" here because sccache pre-commit 
 # checks often require it to be UNSET completely rather than set to 0.
+
+[alias]
+# Repo task runner: `cargo xtask publish [--resume] [--dry-run]`.
+# Shell-agnostic (bash/zsh/PowerShell/cmd) — see xtask/src/main.rs.
+xtask = "run --quiet --package xtask --"

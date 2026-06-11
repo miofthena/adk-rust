@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-06-11
+
+### Added
+
+- **adk-telemetry: direct SQLite span export** (`sqlite` feature; facade forwards
+  as `telemetry-sqlite`) — zero-infrastructure tracing with no collector or
+  backend to deploy (#373, export half):
+  - `SqliteSpanExporter` — spans flow to a dedicated writer thread over an
+    unbounded channel and commit in batched transactions (WAL); the traced code
+    path pays one channel send. `flush()` for graceful exit.
+  - `SqliteTraceReader` — query API (`sessions`, `session_trace`, `trace`,
+    `recent_spans`) over a single `spans` table with a JSON attributes column,
+    so any SQLite client works.
+  - `init_with_sqlite(service, path)` one-line initializer, and a `SpanSink`
+    trait so `AdkSpanLayer` can target any sink (the in-memory exporter is
+    unchanged).
+  - Runnable example: `examples/telemetry_sqlite_export` (agentic Gemini run
+    with a tool call, traced end-to-end and read back).
+- **cargo-adk: advertised templates implemented for real.** `tools`, `rag`,
+  `api`, `openai`, and `a2a` were aliases that silently produced a plain llm
+  agent when combined with any `--addon`; they are now real templates
+  (`tools` scaffolds a working `#[tool]` in `src/tools.rs`; `rag` wires an
+  embedding + vector-store pipeline with `RagTool`; `api` generates a REST
+  server — including the previously missing `axum` dependency; `openai`
+  defaults its provider; `a2a` resolves to the `a2a-server` pattern).
+- **cargo-adk: custom template directories.** `--template-dir` loads TOML
+  template manifests (documented in `TemplateRegistry::load_custom_dir`);
+  same-name templates override built-ins.
+- **cargo-adk: generated projects run out of the box.** Scaffolds end with an
+  interactive `Launcher` console when nothing else drives the agent, missing
+  API keys produce a friendly error instead of a panic, `--model` and
+  `--with-yaml` work on all templates, and `--provider` defaults to the
+  template's provider.
+- **Quality gates via lefthook** (#374): pre-commit runs fmt + clippy
+  (workspace, `-D warnings`) + shellcheck on staged scripts; pre-push runs the
+  full nextest suite. The devenv shell registers the hooks automatically;
+  lefthook is the single hook manager (devenv git-hooks integration retired).
+- **Shell-agnostic publishing: `cargo xtask publish`** (`--resume`,
+  `--dry-run`) — works from bash/zsh/PowerShell/cmd; the publish order is
+  computed from `cargo metadata` at runtime, replacing the hand-maintained
+  tier list. `publish.sh` remains as a thin bash wrapper.
+- **Release tooling and CI guards**: `scripts/bump-version.sh` (updates
+  Cargo.toml, docs, READMEs, and doc-comment snippets; never touches
+  CHANGELOG, lock files, or historical text), `scripts/check-doc-versions.sh`
+  (doc snippet versions must match the workspace version; documented adk-rust
+  features must exist), and `scripts/check-publish-order.sh` (a valid publish
+  order must exist; warns on versioned internal dev-deps).
+
+### Fixed
+
+- **adk-sandbox: WASM timeout isolation.** Each execution gets its own
+  wasmtime engine; previously the engine was shared and any execution's
+  timeout timer (including stale timers from finished runs) tripped the epoch
+  deadline of every in-flight execution, causing spurious timeouts. Covered
+  by a regression test.
+- **adk-sandbox: the `wasm` feature compiles again.** A dependency bump had
+  moved `wasmtime` to 45 while `wasmtime-wasi` stayed at 44 (two incompatible
+  majors); aligned at 45.
+- **adk-model: transport span no longer shadows the agent-layer `call_llm`.**
+  The Gemini client's `generate_content` span shared the agent layer's name,
+  so every LLM call exported as a duplicate pair. The transport span is now
+  `model.generate_content`, applied uniformly across all providers (OpenAI,
+  Responses, compatible presets, OpenRouter, Anthropic, DeepSeek, Groq,
+  Ollama, Bedrock, Azure AI, mistral.rs).
+- **Publishing can no longer deadlock on dev-deps.** Internal dev-deps are
+  path-only (stripped from published manifests) — the class of failure that
+  required emergency manifest surgery during the v1.0.0 release is gone.
+- **docs.rs / crates.io landing pages corrected**: feature presets now match
+  reality (default is `minimal`; the documented `labs` feature no longer
+  exists), stale version snippets bumped (including doc headers that survived
+  several releases at 0.8.2), README template/addon lists match the CLI, and
+  example counts are accurate.
+- **gemini_openai_compat_agent example relocated** from adk-model to adk-agent
+  (it is an agent-level example; adk-model no longer needs upward dev-deps),
+  and clippy violations across feature-gated and test code fixed —
+  adk-model now passes `--all-features --all-targets -D warnings`.
+
 ## [1.0.0] - 2026-06-07
 
 > **Note:** 0.10.0 was an internal-only release and was never published to crates.io. All changes below were shipped as part of 1.0.0.

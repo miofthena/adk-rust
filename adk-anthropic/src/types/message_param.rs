@@ -79,9 +79,21 @@ impl From<crate::types::Message> for MessageParam {
     }
 }
 
-impl<T: AsRef<str>> From<T> for MessageParamContent {
-    fn from(content: T) -> Self {
-        MessageParamContent::String(content.as_ref().to_string())
+impl From<&str> for MessageParamContent {
+    fn from(content: &str) -> Self {
+        MessageParamContent::String(content.to_string())
+    }
+}
+
+impl From<String> for MessageParamContent {
+    fn from(content: String) -> Self {
+        MessageParamContent::String(content)
+    }
+}
+
+impl From<&String> for MessageParamContent {
+    fn from(content: &String) -> Self {
+        MessageParamContent::String(content.clone())
     }
 }
 

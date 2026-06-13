@@ -16,6 +16,8 @@ readme = "README.md"
 default = []
 # Enable memory tools (LoadMemoryTool, PreloadMemoryTool)
 memory-tools = ["dep:adk-memory", "dep:chrono"]
+# Enable knowledge-graph memory curation tools (RememberTool, RelateTool, GraphMemoryToolset)
+graph-memory-tools = ["memory-tools", "adk-memory/graph-memory"]
 # Enable Model Context Protocol clients and local child-process transport.
 mcp = ["dep:rmcp"]
 # Enable HTTP transport for remote MCP servers (streamable HTTP)

@@ -44,9 +44,13 @@
 
 pub mod config;
 pub mod format;
+#[cfg(feature = "graph-memory-tools")]
+pub mod graph;
 pub mod load_memory;
 pub mod preload_memory;
 
 pub use config::{MemoryToolConfig, MemoryToolConfigBuilder};
+#[cfg(feature = "graph-memory-tools")]
+pub use graph::{GraphMemoryToolset, RelateTool, RememberTool};
 pub use load_memory::{LoadMemoryTool, LoadMemoryToolBuilder};
 pub use preload_memory::{PreloadMemoryTool, PreloadMemoryToolBuilder};

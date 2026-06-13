@@ -77,6 +77,9 @@ pub mod code_execution;
 #[cfg(feature = "memory-tools")]
 pub mod memory;
 
+#[cfg(feature = "graph-memory-tools")]
+pub use memory::{GraphMemoryToolset, RelateTool, RememberTool};
+
 #[cfg(feature = "slack")]
 pub mod slack;
 

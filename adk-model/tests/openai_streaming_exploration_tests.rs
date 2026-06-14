@@ -316,4 +316,73 @@ mod streaming_exploration {
             "final response with tool calls should have turn_complete=true"
         );
     }
+
+    /// Regression test for providers using "delta.reasoning" field instead of "delta.reasoning_content"
+    /// (OpenRouter, Kilo Gateway, SambaNova, Cerebras, Groq).
+    /// Without the fallback fix, this test would fail — reasoning silently dropped in streaming.
+    #[tokio::test]
+    async fn reasoning_field_fallback_streaming() {
+        let server = MockServer::start().await;
+
+        let sse_body = [
+            "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"reasoning\":\"Let me think...\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning\":\" about this.\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The answer is 42.\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":10,\"total_tokens\":15}}\n\n",
+            "data: [DONE]\n\n",
+        ]
+        .join("");
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(&sse_body)
+                    .insert_header("content-type", "text/event-stream"),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = make_client(&server.uri());
+        let request = make_request();
+
+        let stream_result = client.generate_content(request, true).await;
+        assert!(stream_result.is_ok(), "generate_content should not error");
+
+        let mut stream = stream_result.unwrap();
+        let mut responses = Vec::new();
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(resp) => responses.push(resp),
+                Err(e) => panic!("stream yielded error: {e}"),
+            }
+        }
+
+        // Collect all Part::Thinking parts from all responses
+        let thinking_parts: Vec<&str> = responses
+            .iter()
+            .filter_map(|r| r.content.as_ref())
+            .flat_map(|c| &c.parts)
+            .filter_map(|p| match p {
+                Part::Thinking { thinking, .. } => Some(thinking.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        // BUG CONDITION: on unfixed code, delta.reasoning is not parsed,
+        // so no Part::Thinking is yielded from streaming delta chunks.
+        assert!(
+            !thinking_parts.is_empty(),
+            "expected Part::Thinking responses from delta.reasoning chunks (fallback). \
+             Counterexample: no Part::Thinking yielded — reasoning field not parsed — bug confirmed."
+        );
+
+        // Verify the thinking content matches what was sent
+        let combined_thinking: String = thinking_parts.join("");
+        assert!(
+            combined_thinking.contains("Let me think"),
+            "thinking content should contain the reasoning text"
+        );
+    }
 }

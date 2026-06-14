@@ -196,4 +196,66 @@ mod openai_client_preservation {
         let usage = resp.usage_metadata.as_ref().expect("should have usage");
         assert_eq!(usage.thinking_token_count, Some(40));
     }
+
+    /// Regression test for providers using "reasoning" field instead of "reasoning_content"
+    /// (OpenRouter, Kilo Gateway, SambaNova, Cerebras, Groq).
+    /// Without the fallback fix, this test would fail — reasoning silently dropped.
+    #[tokio::test]
+    async fn non_streaming_reasoning_field_fallback() {
+        let server = MockServer::start().await;
+
+        let body = serde_json::json!({
+            "id": "chatcmpl-3",
+            "object": "chat.completion",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "reasoning": "Let me think step by step...",  // NOT reasoning_content
+                    "content": "The answer is 42."
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 50,
+                "total_tokens": 60
+            }
+        });
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&body))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = make_reasoning_client(&server.uri());
+        let request = make_request("o3");
+
+        let mut stream =
+            client.generate_content(request, false).await.expect("generate_content should succeed");
+
+        let mut responses = Vec::new();
+        while let Some(item) = stream.next().await {
+            responses.push(item.expect("stream item should be Ok"));
+        }
+
+        assert_eq!(responses.len(), 1, "non-streaming should yield exactly 1 response");
+
+        let resp = &responses[0];
+        let content = resp.content.as_ref().expect("response should have content");
+
+        // Should have Thinking + Text parts (not just Text)
+        assert_eq!(content.parts.len(), 2, "should have Thinking + Text parts via fallback");
+
+        // First part: Thinking from "reasoning" field
+        assert!(
+            matches!(
+                &content.parts[0],
+                Part::Thinking { thinking, .. } if thinking == "Let me think step by step..."
+            ),
+            "first part should be Part::Thinking from 'reasoning' field fallback"
+        );
+    }
 }

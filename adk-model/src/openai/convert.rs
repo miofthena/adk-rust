@@ -346,7 +346,12 @@ pub fn from_raw_openai_response(json: &serde_json::Value) -> LlmResponse {
         let mut parts = Vec::new();
 
         // Extract reasoning_content (returned by reasoning models like o3, gpt-5-mini)
-        if let Some(reasoning) = message.get("reasoning_content").and_then(|v| v.as_str())
+        // Fallback to "reasoning" field for OpenRouter, Kilo Gateway, SambaNova, Cerebras, Groq
+        let reasoning = message
+            .get("reasoning_content")
+            .or_else(|| message.get("reasoning"))
+            .and_then(|v| v.as_str());
+        if let Some(reasoning) = reasoning
             && !reasoning.is_empty()
         {
             parts.push(Part::Thinking { thinking: reasoning.to_string(), signature: None });

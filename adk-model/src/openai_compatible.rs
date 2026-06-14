@@ -666,8 +666,11 @@ impl Llm for OpenAICompatible {
                             }
 
                             // Emit partial reasoning_content as Part::Thinking.
-                            if let Some(reasoning) =
-                                delta.get("reasoning_content").and_then(|v| v.as_str())
+                            // Fallback to "reasoning" field for OpenRouter, Kilo Gateway, SambaNova, Cerebras, Groq
+                            let reasoning = delta.get("reasoning_content")
+                                .or_else(|| delta.get("reasoning"))
+                                .and_then(|v| v.as_str());
+                            if let Some(reasoning) = reasoning
                                 && !reasoning.is_empty() {
                                     yield LlmResponse {
                                         content: Some(Content {

@@ -64,8 +64,21 @@ pub trait RealtimeSession: Send + Sync {
     /// Send a text message.
     async fn send_text(&self, text: &str) -> Result<()>;
 
-    /// Send a tool/function response.
+    /// Send a tool/function response (output **and** a response trigger).
     async fn send_tool_response(&self, response: ToolResponse) -> Result<()>;
+
+    /// Send a tool/function output **without** triggering a response.
+    ///
+    /// When one model response dispatches several parallel tool calls, send each
+    /// output with this method and then call
+    /// [`create_response`](Self::create_response) exactly once — issuing a
+    /// `response.create` per output would collide with the still-active response
+    /// on providers like OpenAI. The default delegates to
+    /// [`send_tool_response`](Self::send_tool_response) for backends that do not
+    /// separate the two.
+    async fn send_tool_output(&self, response: ToolResponse) -> Result<()> {
+        self.send_tool_response(response).await
+    }
 
     /// Commit the audio buffer (for manual VAD mode).
     async fn commit_audio(&self) -> Result<()>;

@@ -241,7 +241,7 @@ impl<T: OpenAITransportLink> RealtimeSession for OpenAIProtocolHandler<T> {
         self.transport.send_raw(&event).await
     }
 
-    async fn send_tool_response(&self, response: ToolResponse) -> Result<()> {
+    async fn send_tool_output(&self, response: ToolResponse) -> Result<()> {
         let output = match &response.output {
             Value::String(s) => s.clone(),
             other => serde_json::to_string(other).unwrap_or_default(),
@@ -255,9 +255,14 @@ impl<T: OpenAITransportLink> RealtimeSession for OpenAIProtocolHandler<T> {
                 "output": output
             }
         });
-        self.transport.send_raw(&event).await?;
+        self.transport.send_raw(&event).await
+    }
 
-        // Trigger response after tool output
+    async fn send_tool_response(&self, response: ToolResponse) -> Result<()> {
+        // Output, then one response trigger. For *parallel* tool calls the runner
+        // uses `send_tool_output` per call + a single `create_response` once the
+        // dispatch response is done, so it must not fire one create per output.
+        self.send_tool_output(response).await?;
         self.create_response().await
     }
 

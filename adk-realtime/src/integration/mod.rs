@@ -382,6 +382,16 @@ impl IntegratedRealtimeRunner {
                     "tool dispatch failed (non-fatal)"
                 );
             }
+
+            // When the dispatch response finishes, send the single owed follow-up
+            // response so the model speaks its answer using the tool results. This
+            // mirrors what `RealtimeRunner::run` does in `handle_event`; the
+            // pull-based path must do it explicitly.
+            if let ServerEvent::ResponseDone { .. } = server_event
+                && let Err(e) = self.runner.respond_after_tools().await
+            {
+                tracing::warn!(error = %e, "post-tool response trigger failed (non-fatal)");
+            }
         }
 
         Some(event)

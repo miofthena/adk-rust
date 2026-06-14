@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Live Translation</title>
+<style>
+  :root {
+    --bg: #0b1120; --panel: #111a2e; --panel2: #0e1626; --line: #1e2b45;
+    --fg: #e8eefc; --muted: #8aa0c6; --accent: #4f8cff; --accent2: #19c37d;
+    --warn: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #16223d 0%, var(--bg) 60%);
+    color: var(--fg); min-height: 100vh;
+  }
+  header { padding: 22px 28px 8px; }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: .2px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 16px 24px 40px; }
+
+  .controls {
+    display: flex; gap: 12px; align-items: end; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px; margin: 14px 0 18px;
+  }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  select {
+    background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 9px; padding: 10px 12px; font-size: 14px; min-width: 170px;
+  }
+  select:focus { outline: none; border-color: var(--accent); }
+  .spacer { flex: 1; }
+  button {
+    border: none; border-radius: 10px; padding: 12px 20px; font-size: 14px;
+    font-weight: 600; cursor: pointer; transition: filter .15s, background .15s;
+  }
+  .btn-start { background: var(--accent2); color: #04150d; }
+  .btn-start:hover { filter: brightness(1.08); }
+  .btn-stop { background: var(--warn); color: #1a0606; }
+  .btn-mute { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); }
+  .btn-mute.on { background: #3a2030; color: #ffb3c1; border-color: #5a2a3e; }
+  button:disabled { opacity: .55; cursor: default; }
+
+  .status {
+    display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted);
+    margin: 0 2px 14px; min-height: 20px;
+  }
+  .status .dot { width: 9px; height: 9px; border-radius: 50%; background: #44506a; }
+  .status.live .dot { background: var(--accent2); box-shadow: 0 0 0 4px rgba(25,195,125,.18); animation: pulse 1.6s infinite; }
+  .status.err { color: var(--warn); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+
+  .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .panes { grid-template-columns: 1fr; } }
+  .pane {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 0; overflow: hidden; display: flex; flex-direction: column; min-height: 320px;
+  }
+  .pane h2 {
+    margin: 0; padding: 13px 16px; font-size: 12px; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted); border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .pane.target h2 { color: var(--accent2); }
+  .pane .body {
+    padding: 16px; font-size: 17px; line-height: 1.65; overflow-y: auto; flex: 1;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .pane.target .body { color: #d6ffe9; }
+  .empty { color: #54627e; font-style: italic; font-size: 14px; }
+  footer { color: #54627e; font-size: 12px; margin-top: 22px; text-align: center; }
+  code { background: var(--panel2); padding: 1px 6px; border-radius: 5px; color: #b9c9ec; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>🌐 Live Translation</h1>
+    <p>Speak naturally — your words are translated in real time and spoken back. Source language is auto-detected.</p>
+  </header>
+
+  <div class="wrap">
+    <div class="controls">
+      <div class="field">
+        <label for="provider">Model</label>
+        <select id="provider">
+          <option value="openai">OpenAI · gpt-realtime-translate</option>
+          <option value="gemini">Gemini · 3.5 Live Translate</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="target">Translate into</label>
+        <select id="target">
+          <option value="es">Spanish</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+          <option value="it">Italian</option>
+          <option value="pt">Portuguese</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+          <option value="zh">Mandarin Chinese</option>
+          <option value="hi">Hindi</option>
+          <option value="ar">Arabic</option>
+          <option value="ru">Russian</option>
+          <option value="id">Indonesian</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn-mute" id="muteBtn" style="display:none" onclick="toggleMute()">🎙 Mute</button>
+      <button class="btn-start" id="startBtn" onclick="start()">🎤 Start translating</button>
+      <button class="btn-stop" id="stopBtn" style="display:none" onclick="stop()">■ Stop</button>
+    </div>
+
+    <div class="status" id="status"><span class="dot"></span><span id="statusText">Idle — pick a target language and press start.</span></div>
+
+    <div class="panes">
+      <div class="pane source">
+        <h2>You said <span id="srcProvider"></span></h2>
+        <div class="body" id="sourceBody"><span class="empty">Your speech transcript will appear here…</span></div>
+      </div>
+      <div class="pane target">
+        <h2>Translation <span id="tgtLang"></span></h2>
+        <div class="body" id="targetBody"><span class="empty">The translation will appear and be spoken here…</span></div>
+      </div>
+    </div>
+
+    <footer>
+      Server-side bridge to dedicated translation endpoints. Audio never touches the browser→provider path directly.
+    </footer>
+  </div>
+
+<script>
+  // ─── Transport / audio state ─────────────────────────────────────────────
+  let ws = null, micStream = null;
+  let captureCtx = null, captureNode = null;
+  let playbackCtx = null, nextPlayTime = 0, liveSources = [];
+  let isMuted = false;
+  let inputRate = 24000, outputRate = 24000;   // negotiated per provider via `ready`
+  let srcStarted = false, tgtStarted = false;
+
+  function setStatus(text, kind) {
+    document.getElementById('statusText').textContent = text;
+    const s = document.getElementById('status');
+    s.classList.toggle('live', kind === 'live');
+    s.classList.toggle('err', kind === 'err');
+  }
+
+  async function start() {
+    const startBtn = document.getElementById('startBtn');
+    startBtn.disabled = true; startBtn.textContent = '⏳ Connecting…';
+    const provider = document.getElementById('provider').value;
+    const target = document.getElementById('target').value;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
+      });
+      const q = `provider=${encodeURIComponent(provider)}&target=${encodeURIComponent(target)}`;
+      ws = new WebSocket(`ws://${location.host}/ws?${q}`);
+      ws.binaryType = 'arraybuffer';
+      ws.onmessage = (e) => handle(JSON.parse(e.data));
+      ws.onclose = () => { if (startBtn.style.display !== 'none') resetUI(); };
+      ws.onerror = () => setStatus('Connection error.', 'err');
+      setStatus('Connecting…');
+    } catch (e) {
+      resetUI();
+      setStatus('Microphone access denied: ' + e.message, 'err');
+    }
+  }
+
+  function activate(msg) {
+    inputRate = msg.input_rate || 24000;
+    outputRate = msg.output_rate || 24000;
+    document.getElementById('startBtn').style.display = 'none';
+    document.getElementById('stopBtn').style.display = '';
+    document.getElementById('muteBtn').style.display = '';
+    document.getElementById('provider').disabled = true;
+    document.getElementById('target').disabled = true;
+    document.getElementById('srcProvider').textContent = '· ' + (msg.provider || '').toUpperCase();
+    document.getElementById('tgtLang').textContent = '· ' + labelFor(msg.target);
+    setStatus(`Live — ${msg.provider} · ${inputRate/1000}kHz in / ${outputRate/1000}kHz out · just start speaking`, 'live');
+
+    playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: outputRate });
+    nextPlayTime = 0;
+    startMic();
+  }
+
+  function startMic() {
+    captureCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: inputRate });
+    const source = captureCtx.createMediaStreamSource(micStream);
+    captureNode = captureCtx.createScriptProcessor(2048, 1, 1);
+    captureNode.onaudioprocess = (e) => {
+      if (isMuted || !ws || ws.readyState !== WebSocket.OPEN) return;
+      const pcm16 = floatTo16BitPCM(e.inputBuffer.getChannelData(0));
+      ws.send(JSON.stringify({ type: 'input_audio', audio: bytesToBase64(pcm16) }));
+    };
+    source.connect(captureNode);
+    captureNode.connect(captureCtx.destination);
+  }
+
+  function handle(msg) {
+    switch (msg.type) {
+      case 'ready':  activate(msg); break;
+      case 'audio':  playPcmChunk(msg.audio); break;
+      case 'source': appendSource(msg.delta); break;
+      case 'target': appendTarget(msg.delta); break;
+      case 'info':   setStatus(msg.message, 'live'); break;
+      case 'error':  setStatus('Error: ' + msg.message, 'err'); break;
+    }
+  }
+
+  function appendSource(delta) {
+    if (!delta) return;
+    const el = document.getElementById('sourceBody');
+    if (!srcStarted) { el.textContent = ''; srcStarted = true; }
+    el.textContent += delta;
+    el.scrollTop = el.scrollHeight;
+  }
+  function appendTarget(delta) {
+    if (!delta) return;
+    const el = document.getElementById('targetBody');
+    if (!tgtStarted) { el.textContent = ''; tgtStarted = true; }
+    el.textContent += delta;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function toggleMute() {
+    isMuted = !isMuted;
+    const b = document.getElementById('muteBtn');
+    b.textContent = isMuted ? '🔇 Unmute' : '🎙 Mute';
+    b.classList.toggle('on', isMuted);
+  }
+
+  function stop() {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'hangup' }));
+    teardown();
+    resetUI();
+    setStatus('Stopped.');
+  }
+
+  function teardown() {
+    try { ws && ws.close(); } catch (_) {}
+    ws = null;
+    if (captureNode) { try { captureNode.disconnect(); } catch (_) {} captureNode = null; }
+    if (captureCtx) { try { captureCtx.close(); } catch (_) {} captureCtx = null; }
+    if (playbackCtx) { try { playbackCtx.close(); } catch (_) {} playbackCtx = null; }
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    liveSources = []; nextPlayTime = 0;
+  }
+
+  function resetUI() {
+    const startBtn = document.getElementById('startBtn');
+    startBtn.style.display = ''; startBtn.disabled = false; startBtn.textContent = '🎤 Start translating';
+    document.getElementById('stopBtn').style.display = 'none';
+    document.getElementById('muteBtn').style.display = 'none';
+    document.getElementById('provider').disabled = false;
+    document.getElementById('target').disabled = false;
+    isMuted = false;
+    document.getElementById('muteBtn').textContent = '🎙 Mute';
+    document.getElementById('muteBtn').classList.remove('on');
+  }
+
+  // ─── PCM helpers (PCM16 mono) ────────────────────────────────────────────
+  function floatTo16BitPCM(float32) {
+    const out = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32[i]));
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    return new Uint8Array(out.buffer);
+  }
+  function bytesToBase64(bytes) {
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+  function base64ToInt16(b64) {
+    const bin = atob(b64);
+    const buf = new ArrayBuffer(bin.length);
+    const view = new Uint8Array(buf);
+    for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
+    return new Int16Array(buf);
+  }
+  function playPcmChunk(b64) {
+    if (!playbackCtx) return;
+    const pcm16 = base64ToInt16(b64);
+    if (!pcm16.length) return;
+    const buf = playbackCtx.createBuffer(1, pcm16.length, outputRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < pcm16.length; i++) ch[i] = pcm16[i] / 0x8000;
+    const src = playbackCtx.createBufferSource();
+    src.buffer = buf; src.connect(playbackCtx.destination);
+    const now = playbackCtx.currentTime;
+    if (nextPlayTime < now) nextPlayTime = now;
+    src.start(nextPlayTime);
+    nextPlayTime += buf.duration;
+    liveSources.push(src);
+    src.onended = () => { liveSources = liveSources.filter(s => s !== src); };
+  }
+
+  function labelFor(code) {
+    const el = document.getElementById('target');
+    for (const o of el.options) if (o.value === code) return o.textContent;
+    return code || '';
+  }
+</script>
+</body>
+</html>

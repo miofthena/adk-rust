@@ -28,6 +28,20 @@ Welcome to the official documentation for ADK-Rust (Agent Development Kit for Ru
 - [Graph Agents](agents/graph-agents.md) - LangGraph-style workflow orchestration
 - [Realtime Agents](agents/realtime-agents.md) - Voice-enabled agents with OpenAI/Gemini
 
+## Realtime & Multimodal
+
+A dedicated, newcomer-friendly guide to building voice + multimodal agents — architecture, concepts, and runnable examples.
+
+- [Overview](realtime/index.md) - Start here: the mental model, install, and a 60-second quick start
+- [Architecture](realtime/architecture.md) - The four layers, event loop, audio pipeline, and turn lifecycle
+- [Providers](realtime/providers.md) - OpenAI Realtime & Gemini Live models, voices, and how to choose
+- [Tools](realtime/tools.md) - Server-side actions: native handlers, bridged `adk_core::Tool`s, parallel calls
+- [Multimodal](realtime/multimodal.md) - Video input via `send_video_frame` and browser camera capture
+- [Affective Dialogue](realtime/affective-dialogue.md) - Emotion-aware responses on Gemini native-audio
+- [Memory](realtime/memory.md) - Context injection, turn storage, and knowledge-graph self-curation
+- [Building Web Apps](realtime/building-web-apps.md) - The server-side bridge, WS protocol, and Web Audio
+- [Examples](realtime/examples.md) - The four runnable examples and a suggested learning path
+
 ## Tools
 
 - [Function Tools](tools/function-tools.md) - Create custom tools with async Rust functions

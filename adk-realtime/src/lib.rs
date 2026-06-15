@@ -42,7 +42,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let model = OpenAIRealtimeModel::new(api_key, "gpt-4o-realtime-preview-2024-12-17");
+//!     let model = OpenAIRealtimeModel::new(api_key, "gpt-realtime");
 //!
 //!     let agent = RealtimeAgent::builder("voice_assistant")
 //!         .model(Arc::new(model))
@@ -66,7 +66,7 @@
 //! use adk_realtime::{RealtimeModel, RealtimeConfig, ServerEvent};
 //! use adk_realtime::openai::OpenAIRealtimeModel;
 //!
-//! let model = OpenAIRealtimeModel::new(api_key, "gpt-4o-realtime-preview-2024-12-17");
+//! let model = OpenAIRealtimeModel::new(api_key, "gpt-realtime");
 //! let session = model.connect(config).await?;
 //!
 //! while let Some(event) = session.next_event().await {
@@ -99,6 +99,16 @@ pub mod livekit;
 
 #[cfg(feature = "video-avatar")]
 pub mod avatar;
+
+#[cfg(feature = "integration")]
+pub mod integration;
+
+#[cfg(feature = "integration")]
+pub use integration::{
+    AggregatedEvent, CompletedToolCall, DefaultToolContextFactory, IntegratedRealtimeRunner,
+    IntegratedRealtimeRunnerBuilder, IntegrationConfig, RealtimeToolContext, SessionIdentity,
+    ToolBridgeAdapter, TranscriptAggregator,
+};
 
 // Re-exports
 pub use agent::{RealtimeAgent, RealtimeAgentBuilder};

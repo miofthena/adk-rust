@@ -36,6 +36,9 @@ default = []
 # Exposes only the EmbeddingProvider trait without heavy DB dependencies
 embedding-trait = []
 sqlite-memory = ["sqlx/sqlite"]
+# Knowledge-graph (bi-temporal) memory backend, SQLite-backed.
+# Reuses the SQLite migration runner from the sqlite-memory backend.
+graph-memory = ["sqlite-memory"]
 database-memory = ["sqlx/postgres", "pgvector"]
 redis-memory = ["fred"]
 mongodb-memory = ["dep:mongodb"]

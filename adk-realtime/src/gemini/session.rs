@@ -26,7 +26,6 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
-type WsSink = futures::stream::SplitSink<WsStream, Message>;
 type WsSource = futures::stream::SplitStream<WsStream>;
 const WRITER_CHANNEL_CAPACITY: usize = 64;
 const AUDIO_FLUSH_TARGET_MS: usize = 40;
@@ -121,6 +120,12 @@ struct GeminiSetup {
     cached_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     session_resumption: Option<SessionResumptionConfig>,
+    /// Enable transcription of the user's input audio (empty object = on).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input_audio_transcription: Option<Value>,
+    /// Enable transcription of the model's spoken output (empty object = on).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_audio_transcription: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +151,8 @@ struct GeminiInlineData {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GeminiRealtimeInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    audio: Option<GeminiMediaChunk>,
     #[serde(skip_serializing_if = "Option::is_none")]
     media_chunks: Option<Vec<GeminiMediaChunk>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -366,15 +373,17 @@ impl GeminiRealtimeSession {
             generation_config["temperature"] = json!(temp);
         }
 
-        if let Some(extra) = &config.extra {
-            if let Some(thinking_level) = extra.get("thinking_level") {
-                if let Some(obj) = generation_config.as_object_mut() {
-                    obj.insert(
-                        "thinkingConfig".to_string(),
-                        json!({ "thinkingLevel": thinking_level }),
-                    );
-                }
-            }
+        // Emotion-aware ("affective") dialog — a generationConfig field, honored
+        // by native-audio models on the v1alpha endpoint.
+        if config.affective_dialog == Some(true) {
+            generation_config["enableAffectiveDialog"] = json!(true);
+        }
+
+        if let Some(extra) = &config.extra
+            && let Some(thinking_level) = extra.get("thinking_level")
+            && let Some(obj) = generation_config.as_object_mut()
+        {
+            obj.insert("thinkingConfig".to_string(), json!({ "thinkingLevel": thinking_level }));
         }
 
         let system_instruction = config.instruction.map(|text| GeminiContent {
@@ -393,6 +402,11 @@ impl GeminiRealtimeSession {
 
         let session_resumption = Some(SessionResumptionConfig { handle });
 
+        // When transcription is requested, enable both input (user speech) and
+        // output (model speech) transcription so consumers get clean text for
+        // native-audio turns. An empty object turns the feature on.
+        let transcription = config.input_audio_transcription.as_ref().map(|_| json!({}));
+
         let setup = GeminiClientMessage {
             setup: Some(GeminiSetup {
                 model: model.to_string(),
@@ -401,6 +415,8 @@ impl GeminiRealtimeSession {
                 tools,
                 cached_content: config.cached_content,
                 session_resumption,
+                input_audio_transcription: transcription.clone(),
+                output_audio_transcription: transcription,
             }),
             realtime_input: None,
             tool_response: None,
@@ -505,47 +521,80 @@ impl GeminiRealtimeSession {
         if let Some(content) = value.get("serverContent") {
             let mut events = Vec::new();
 
-            if let Some(parts) = content.get("modelTurn").and_then(|t| t.get("parts")) {
-                if let Some(parts_arr) = parts.as_array() {
-                    for part in parts_arr {
-                        // Audio output — decode base64 to raw bytes
-                        if let Some(inline_data) = part.get("inlineData") {
-                            if let Some(data) = inline_data.get("data").and_then(|d| d.as_str()) {
-                                let decoded = base64::engine::general_purpose::STANDARD
-                                    .decode(data)
-                                    .unwrap_or_default();
-                                events.push(ServerEvent::AudioDelta {
-                                    event_id: uuid::Uuid::new_v4().to_string(),
-                                    response_id: String::new(),
-                                    item_id: String::new(),
-                                    output_index: 0,
-                                    content_index: 0,
-                                    delta: decoded,
-                                });
-                            }
-                        }
-                        // Text output
-                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                            events.push(ServerEvent::TextDelta {
-                                event_id: uuid::Uuid::new_v4().to_string(),
-                                response_id: String::new(),
-                                item_id: String::new(),
-                                output_index: 0,
-                                content_index: 0,
-                                delta: text.to_string(),
-                            });
-                        }
+            if let Some(parts) = content.get("modelTurn").and_then(|t| t.get("parts"))
+                && let Some(parts_arr) = parts.as_array()
+            {
+                for part in parts_arr {
+                    // Audio output — decode base64 to raw bytes
+                    if let Some(inline_data) = part.get("inlineData")
+                        && let Some(data) = inline_data.get("data").and_then(|d| d.as_str())
+                    {
+                        let decoded = base64::engine::general_purpose::STANDARD
+                            .decode(data)
+                            .unwrap_or_default();
+                        events.push(ServerEvent::AudioDelta {
+                            event_id: uuid::Uuid::new_v4().to_string(),
+                            response_id: String::new(),
+                            item_id: String::new(),
+                            output_index: 0,
+                            content_index: 0,
+                            delta: decoded,
+                        });
+                    }
+                    // Text output
+                    if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                        events.push(ServerEvent::TextDelta {
+                            event_id: uuid::Uuid::new_v4().to_string(),
+                            response_id: String::new(),
+                            item_id: String::new(),
+                            output_index: 0,
+                            content_index: 0,
+                            delta: text.to_string(),
+                        });
                     }
                 }
             }
 
-            if let Some(turn_complete) = content.get("turnComplete") {
-                if turn_complete.as_bool().unwrap_or(false) {
-                    events.push(ServerEvent::ResponseDone {
-                        event_id: uuid::Uuid::new_v4().to_string(),
-                        response: value.clone(),
-                    });
-                }
+            // Output transcription: the model's spoken words as text (enabled via
+            // outputAudioTranscription). Surfaced as a transcript delta so it
+            // reads the same as OpenAI's audio transcript.
+            if let Some(text) = content
+                .get("outputTranscription")
+                .and_then(|o| o.get("text"))
+                .and_then(|t| t.as_str())
+                && !text.is_empty()
+            {
+                events.push(ServerEvent::TranscriptDelta {
+                    event_id: uuid::Uuid::new_v4().to_string(),
+                    response_id: String::new(),
+                    item_id: String::new(),
+                    output_index: 0,
+                    content_index: 0,
+                    delta: text.to_string(),
+                });
+            }
+
+            // Input transcription: the user's speech as text (streamed in chunks).
+            if let Some(text) = content
+                .get("inputTranscription")
+                .and_then(|o| o.get("text"))
+                .and_then(|t| t.as_str())
+                && !text.is_empty()
+            {
+                events.push(ServerEvent::InputTranscriptDelta {
+                    item_id: String::new(),
+                    content_index: 0,
+                    delta: text.to_string(),
+                });
+            }
+
+            if let Some(turn_complete) = content.get("turnComplete")
+                && turn_complete.as_bool().unwrap_or(false)
+            {
+                events.push(ServerEvent::ResponseDone {
+                    event_id: uuid::Uuid::new_v4().to_string(),
+                    response: value.clone(),
+                });
             }
 
             if !events.is_empty() {
@@ -557,35 +606,34 @@ impl GeminiRealtimeSession {
         // Note the intentional protocol asymmetry here: the client sends the parameter as handle,
         // but the server transmits the parameter back as resumptionToken.
         // Reference: https://ai.google.dev/gemini-api/docs/live-api/session-management
-        if let Some(resumption_update) = value.get("sessionResumptionUpdate") {
-            if let Some(token) = resumption_update.get("resumptionToken").and_then(|t| t.as_str()) {
-                tracing::debug!("Received new Gemini 2.5 Native resumption token");
-                return Ok(vec![ServerEvent::SessionUpdated {
-                    event_id: uuid::Uuid::new_v4().to_string(),
-                    session: json!({ "resumeToken": token }),
-                }]);
-            }
+        if let Some(resumption_update) = value.get("sessionResumptionUpdate")
+            && let Some(token) = resumption_update.get("resumptionToken").and_then(|t| t.as_str())
+        {
+            tracing::debug!("Received new Gemini 2.5 Native resumption token");
+            return Ok(vec![ServerEvent::SessionUpdated {
+                event_id: uuid::Uuid::new_v4().to_string(),
+                session: json!({ "resumeToken": token }),
+            }]);
         }
 
         // Check for tool calls
-        if let Some(tool_call) = value.get("toolCall") {
-            if let Some(calls) = tool_call.get("functionCalls").and_then(|c| c.as_array()) {
-                if let Some(call) = calls.first() {
-                    let name = call.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                    let id = call.get("id").and_then(|i| i.as_str()).unwrap_or("");
-                    let args = call.get("args").cloned().unwrap_or(json!({}));
+        if let Some(tool_call) = value.get("toolCall")
+            && let Some(calls) = tool_call.get("functionCalls").and_then(|c| c.as_array())
+            && let Some(call) = calls.first()
+        {
+            let name = call.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let id = call.get("id").and_then(|i| i.as_str()).unwrap_or("");
+            let args = call.get("args").cloned().unwrap_or(json!({}));
 
-                    return Ok(vec![ServerEvent::FunctionCallDone {
-                        event_id: uuid::Uuid::new_v4().to_string(),
-                        response_id: String::new(),
-                        item_id: String::new(),
-                        output_index: 0,
-                        call_id: id.to_string(),
-                        name: name.to_string(),
-                        arguments: serde_json::to_string(&args).unwrap_or_default(),
-                    }]);
-                }
-            }
+            return Ok(vec![ServerEvent::FunctionCallDone {
+                event_id: uuid::Uuid::new_v4().to_string(),
+                response_id: String::new(),
+                item_id: String::new(),
+                output_index: 0,
+                call_id: id.to_string(),
+                name: name.to_string(),
+                arguments: serde_json::to_string(&args).unwrap_or_default(),
+            }]);
         }
 
         Ok(vec![ServerEvent::Unknown])
@@ -628,9 +676,30 @@ impl RealtimeSession for GeminiRealtimeSession {
         let msg = GeminiClientMessage {
             setup: None,
             realtime_input: Some(GeminiRealtimeInput {
-                media_chunks: Some(vec![GeminiMediaChunk {
-                    mime_type: "audio/pcm".to_string(),
+                audio: Some(GeminiMediaChunk {
+                    // Gemini Live requires raw 16-bit PCM little-endian at 16 kHz;
+                    // declaring the rate removes any server-side ambiguity.
+                    mime_type: "audio/pcm;rate=16000".to_string(),
                     data: audio_base64.to_string(),
+                }),
+                media_chunks: None,
+                text: None,
+            }),
+            tool_response: None,
+            client_content: None,
+        };
+        self.send_raw(&msg).await
+    }
+
+    async fn send_video_frame(&self, mime_type: &str, data_base64: &str) -> Result<()> {
+        // Gemini Live accepts image frames as realtimeInput media chunks.
+        let msg = GeminiClientMessage {
+            setup: None,
+            realtime_input: Some(GeminiRealtimeInput {
+                audio: None,
+                media_chunks: Some(vec![GeminiMediaChunk {
+                    mime_type: mime_type.to_string(),
+                    data: data_base64.to_string(),
                 }]),
                 text: None,
             }),
@@ -1064,6 +1133,8 @@ mod tests {
             tools: None,
             cached_content: None,
             session_resumption: None,
+            input_audio_transcription: None,
+            output_audio_transcription: None,
         };
         let wrapper = GeminiClientMessage {
             setup: Some(setup),
@@ -1077,6 +1148,13 @@ mod tests {
             setup_json.get("model").expect("model missing from setup payload").as_str().unwrap(),
             "models/gemini-2.5-flash-native-audio-latest"
         );
+    }
+
+    #[test]
+    fn test_affective_dialog_builder_sets_config() {
+        let c = RealtimeConfig::default().with_affective_dialog(true);
+        assert_eq!(c.affective_dialog, Some(true));
+        assert_eq!(RealtimeConfig::default().affective_dialog, None);
     }
 
     #[test]

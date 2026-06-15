@@ -19,7 +19,7 @@ Deployment manifest, bundling, and control-plane client for ADK-Rust agents.
 
 ```toml
 [dependencies]
-adk-deploy = "1.0.1"
+adk-deploy = "1.1.0"
 ```
 
 ## Manifest Format

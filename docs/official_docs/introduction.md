@@ -16,7 +16,7 @@ Or add it to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-adk-rust = "1.0.1"
+adk-rust = "1.1.0"
 tokio = { version = "1.40", features = ["full"] }
 ```
 
@@ -187,22 +187,22 @@ ADK-Rust uses Cargo features for modularity. Four presets control which crates a
 
 ```toml
 # Minimal (default) — Gemini, agents, runner, sessions
-adk-rust = "1.0.1"
+adk-rust = "1.1.0"
 
 # Standard — adds tools, memory, telemetry, server, auth, graph, eval, guardrail, plugins, artifacts, skills
-adk-rust = { version = "1.0.1", features = ["standard"] }
+adk-rust = { version = "1.1.0", features = ["standard"] }
 
 # Enterprise — standard + realtime, browser, RAG, payments, AWP
-adk-rust = { version = "1.0.1", features = ["enterprise"] }
+adk-rust = { version = "1.1.0", features = ["enterprise"] }
 
 # Full — enterprise + audio, code execution, sandbox
-adk-rust = { version = "1.0.1", features = ["full"] }
+adk-rust = { version = "1.1.0", features = ["full"] }
 
 # Equivalent explicit minimal selection
-adk-rust = { version = "1.0.1", default-features = false, features = ["minimal"] }
+adk-rust = { version = "1.1.0", default-features = false, features = ["minimal"] }
 
 # Custom: Pick what you need
-adk-rust = { version = "1.0.1", default-features = false, features = ["agents", "gemini", "tools"] }
+adk-rust = { version = "1.1.0", default-features = false, features = ["agents", "gemini", "tools"] }
 ```
 
 Available features:

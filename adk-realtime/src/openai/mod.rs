@@ -13,7 +13,7 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let model = OpenAIRealtimeModel::new(
 //!         std::env::var("OPENAI_API_KEY")?,
-//!         "gpt-4o-realtime-preview-2024-12-17",
+//!         "gpt-realtime",
 //!     );
 //!
 //!     let config = RealtimeConfig::default()
@@ -47,11 +47,19 @@ pub use webrtc::OpusCodec;
 pub const OPENAI_REALTIME_URL: &str = "wss://api.openai.com/v1/realtime";
 
 /// Available voices for OpenAI Realtime.
+///
+/// `marin` and `cedar` were introduced with the GA `gpt-realtime` model and are
+/// the most natural-sounding options.
 pub const OPENAI_VOICES: &[&str] =
-    &["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"];
+    &["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar"];
 
 /// Default model for OpenAI Realtime.
-pub const DEFAULT_MODEL: &str = "gpt-4o-realtime-preview-2024-12-17";
+///
+/// `gpt-realtime` is the GA speech-to-speech model. The earlier
+/// `gpt-4o-realtime-preview-*` models were deprecated in September 2025 and
+/// removed from the API in March 2026, so they are no longer valid defaults.
+/// For the reasoning-capable successor, pass `gpt-realtime-2` explicitly.
+pub const DEFAULT_MODEL: &str = "gpt-realtime";
 
 /// Transport type for OpenAI Realtime connections.
 ///

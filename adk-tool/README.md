@@ -31,17 +31,17 @@ Tool system for Rust Agent Development Kit (ADK-Rust) agents (FunctionTool, MCP,
 
 ```toml
 [dependencies]
-adk-tool = "1.0.1"
+adk-tool = "1.1.0"
 
 # For remote MCP servers via HTTP:
-adk-tool = { version = "1.0.1", features = ["http-transport"] }
+adk-tool = { version = "1.1.0", features = ["http-transport"] }
 ```
 
 Or use the meta-crate:
 
 ```toml
 [dependencies]
-adk-rust = { version = "1.0.1", features = ["tools"] }
+adk-rust = { version = "1.1.0", features = ["tools"] }
 ```
 
 ## Quick Start

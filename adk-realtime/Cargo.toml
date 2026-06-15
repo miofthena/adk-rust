@@ -54,6 +54,14 @@ getrandom = { version = "0.3", optional = true }
 # Gemini backend (optional)
 adk-gemini = { workspace = true, optional = true }
 
+# Integration with ADK services (optional, behind "integration" feature)
+adk-session = { workspace = true, optional = true }
+adk-memory = { workspace = true, optional = true }
+adk-plugin = { workspace = true, optional = true }
+
+# Timestamp support for session/memory integration
+chrono = { workspace = true, optional = true }
+
 # Vertex AI Live (optional)
 google-cloud-auth = { version = "1.4", optional = true, default-features = false, features = ["default-rustls-provider"] }
 
@@ -125,6 +133,8 @@ harness = false
 
 [features]
 default = []
+# Enable ADK services integration (sessions, memory, plugins)
+integration = ["dep:adk-session", "dep:adk-memory", "dep:adk-plugin", "dep:chrono"]
 # Enable OpenAI Realtime API support
 openai = ["dep:async-openai", "dep:tokio-tungstenite", "dep:getrandom"]
 # Enable Gemini Live API support

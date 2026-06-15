@@ -61,7 +61,7 @@ Real-time bidirectional audio streaming for Rust Agent Development Kit (ADK-Rust
 
 | Provider | Model | Transport | Feature Flag | Description |
 |----------|-------|-----------|--------------|-------------|
-| OpenAI | `gpt-4o-realtime-preview-2024-12-17` | WebSocket | `openai` | Stable realtime model |
+| OpenAI | `gpt-realtime` | WebSocket | `openai` | Stable realtime model |
 | OpenAI | `gpt-realtime` | WebSocket | `openai` | Latest model with improved speech & function calling |
 | OpenAI | `gpt-4o-realtime-*` | WebRTC | `openai-webrtc` | Browser-grade transport with Opus codec |
 | Google | `gemini-live-2.5-flash-native-audio` | WebSocket | `gemini` | Gemini Live API |
@@ -74,7 +74,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-adk-realtime = { version = "1.0.1", features = ["openai"] }
+adk-realtime = { version = "1.1.0", features = ["openai"] }
 ```
 
 ### Using RealtimeAgent (Recommended)
@@ -86,7 +86,7 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("OPENAI_API_KEY")?;
-    let model = Arc::new(OpenAIRealtimeModel::new(&api_key, "gpt-4o-realtime-preview-2024-12-17"));
+    let model = Arc::new(OpenAIRealtimeModel::new(&api_key, "gpt-realtime"));
 
     let agent = RealtimeAgent::builder("voice_assistant")
         .model(model)
@@ -110,7 +110,7 @@ use adk_realtime::openai::OpenAIRealtimeModel;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = OpenAIRealtimeModel::new(
         std::env::var("OPENAI_API_KEY")?,
-        "gpt-4o-realtime-preview-2024-12-17",
+        "gpt-realtime",
     );
 
     let config = RealtimeConfig::default()
@@ -139,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Connect to Gemini Live API via Vertex AI with Application Default Credentials:
 
 ```toml
-adk-realtime = { version = "1.0.1", features = ["vertex-live"] }
+adk-realtime = { version = "1.1.0", features = ["vertex-live"] }
 ```
 
 ```rust
@@ -169,13 +169,13 @@ Prerequisites:
 Lower-latency audio transport using Sans-IO WebRTC with Opus codec:
 
 ```toml
-adk-realtime = { version = "1.0.1", features = ["openai-webrtc"] }
+adk-realtime = { version = "1.1.0", features = ["openai-webrtc"] }
 ```
 
 ```rust
 use adk_realtime::openai::{OpenAIRealtimeModel, OpenAITransport};
 
-let model = OpenAIRealtimeModel::new(api_key, "gpt-4o-realtime-preview-2024-12-17")
+let model = OpenAIRealtimeModel::new(api_key, "gpt-realtime")
     .with_transport(OpenAITransport::WebRTC);
 let session = model.connect(config).await?;
 ```
@@ -191,7 +191,7 @@ export CMAKE_POLICY_VERSION_MINIMUM=3.5
 Bridge any `EventHandler` to a LiveKit room for production voice apps:
 
 ```toml
-adk-realtime = { version = "1.0.1", features = ["livekit", "openai"] }
+adk-realtime = { version = "1.1.0", features = ["livekit", "openai"] }
 ```
 
 #### LiveKitConfig and LiveKitRoomBuilder

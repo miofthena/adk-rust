@@ -8,7 +8,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! adk-auth = { version = "1.0.1", features = ["sso"] }
+//! adk-auth = { version = "1.1.0", features = ["sso"] }
 //! ```
 //!
 //! # Quick Start

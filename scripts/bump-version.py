@@ -102,7 +102,7 @@ def main() -> None:
         # adk-rust = "1.0.0"
         re.compile(rf'\b((?:adk|awp|cargo)-[a-z0-9-]+\s*=\s*"){cur_re}(")'),
         # adk-graph = { version = "1.0.0", features = [...] }
-        re.compile(rf'\b((?:adk|awp|cargo)-[a-z0-9-]+ = \{{ version = "){cur_re}(")'),
+        re.compile(rf'\b((?:adk|awp|cargo)-[a-z0-9-]+\s*=\s*\{{\s*version\s*=\s*"){cur_re}(")'),
     ]
 
     tracked = subprocess.run(

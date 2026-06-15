@@ -5,7 +5,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! adk-rust = { version = "1.0.1", features = ["anthropic"] }
+//! adk-rust = { version = "1.1.0", features = ["anthropic"] }
 //! ```
 
 use adk_rust::Launcher;

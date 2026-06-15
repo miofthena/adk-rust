@@ -33,6 +33,7 @@ where
 /// Events sent from the client to the realtime server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum ClientEvent {
     /// Update session configuration.
     #[serde(rename = "session.update")]
@@ -192,6 +193,7 @@ impl ConversationItem {
 /// transport boundary so consumers never need to deal with encoding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum ServerEvent {
     /// Session was created/connected.
     #[serde(rename = "session.created")]
@@ -308,7 +310,7 @@ pub enum ServerEvent {
     },
 
     /// Audio delta (chunk of output audio as raw bytes).
-    #[serde(rename = "response.audio.delta")]
+    #[serde(alias = "response.audio.delta", rename = "response.output_audio.delta")]
     AudioDelta {
         /// Unique event ID.
         event_id: String,
@@ -329,7 +331,7 @@ pub enum ServerEvent {
     },
 
     /// Audio output completed.
-    #[serde(rename = "response.audio.done")]
+    #[serde(alias = "response.audio.done", rename = "response.output_audio.done")]
     AudioDone {
         /// Unique event ID.
         event_id: String,
@@ -344,7 +346,7 @@ pub enum ServerEvent {
     },
 
     /// Text delta (chunk of output text).
-    #[serde(rename = "response.text.delta")]
+    #[serde(alias = "response.text.delta", rename = "response.output_text.delta")]
     TextDelta {
         /// Unique event ID.
         event_id: String,
@@ -361,7 +363,7 @@ pub enum ServerEvent {
     },
 
     /// Text output completed.
-    #[serde(rename = "response.text.done")]
+    #[serde(alias = "response.text.done", rename = "response.output_text.done")]
     TextDone {
         /// Unique event ID.
         event_id: String,
@@ -378,7 +380,10 @@ pub enum ServerEvent {
     },
 
     /// Audio transcript delta.
-    #[serde(rename = "response.audio_transcript.delta")]
+    #[serde(
+        alias = "response.audio_transcript.delta",
+        rename = "response.output_audio_transcript.delta"
+    )]
     TranscriptDelta {
         /// Unique event ID.
         event_id: String,
@@ -395,7 +400,10 @@ pub enum ServerEvent {
     },
 
     /// Audio transcript completed.
-    #[serde(rename = "response.audio_transcript.done")]
+    #[serde(
+        alias = "response.audio_transcript.done",
+        rename = "response.output_audio_transcript.done"
+    )]
     TranscriptDone {
         /// Unique event ID.
         event_id: String,
@@ -454,6 +462,28 @@ pub enum ServerEvent {
         event_id: String,
         /// Rate limit details.
         rate_limits: Vec<RateLimit>,
+    },
+
+    /// GA API: User input audio transcription delta (streaming partial transcript).
+    #[serde(rename = "conversation.item.input_audio_transcription.delta")]
+    InputTranscriptDelta {
+        /// Item ID for the input audio item being transcribed.
+        item_id: String,
+        /// Content index.
+        content_index: u32,
+        /// Partial transcript text.
+        delta: String,
+    },
+
+    /// GA API: User input audio transcription completed (final transcript).
+    #[serde(rename = "conversation.item.input_audio_transcription.completed")]
+    InputTranscriptCompleted {
+        /// Item ID for the input audio item.
+        item_id: String,
+        /// Content index.
+        content_index: u32,
+        /// Final complete transcript.
+        transcript: String,
     },
 
     /// Unknown event type (for forward compatibility).

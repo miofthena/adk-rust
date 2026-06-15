@@ -209,6 +209,12 @@ pub struct RealtimeConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interruption_detection: Option<InterruptionDetection>,
 
+    /// Enable emotion-aware ("affective") dialog, where the model adapts its
+    /// tone to the user's emotional state. Gemini Live native-audio models only
+    /// (requires the v1alpha endpoint); ignored by other providers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub affective_dialog: Option<bool>,
+
     /// Provider-specific options.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra: Option<Value>,
@@ -361,6 +367,13 @@ impl RealtimeConfig {
     /// Set temperature.
     pub fn with_temperature(mut self, temp: f32) -> Self {
         self.temperature = Some(temp);
+        self
+    }
+
+    /// Enable emotion-aware ("affective") dialog. Only honored by Gemini Live
+    /// native-audio models (v1alpha); a no-op for other providers/models.
+    pub fn with_affective_dialog(mut self, enabled: bool) -> Self {
+        self.affective_dialog = Some(enabled);
         self
     }
 

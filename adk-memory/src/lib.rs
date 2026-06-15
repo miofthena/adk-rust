@@ -68,6 +68,8 @@ pub mod text;
     feature = "embedding-trait"
 ))]
 pub mod embedding;
+#[cfg(feature = "graph-memory")]
+pub mod graph;
 #[cfg(feature = "mongodb-memory")]
 pub mod mongodb;
 #[cfg(feature = "neo4j-memory")]
@@ -90,6 +92,11 @@ pub use service::{MemoryEntry, MemoryService, SearchRequest, SearchResponse, val
     feature = "embedding-trait"
 ))]
 pub use embedding::EmbeddingProvider;
+#[cfg(feature = "graph-memory")]
+pub use graph::{
+    CreateEntityInput, CreateRelationInput, Entity, GraphMemoryService, GraphSearchResult,
+    Observation, Relation,
+};
 #[cfg(feature = "mongodb-memory")]
 pub use mongodb::MongoMemoryService;
 #[cfg(feature = "neo4j-memory")]

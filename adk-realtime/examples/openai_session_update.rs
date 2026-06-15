@@ -28,8 +28,7 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
-    let model_id =
-        std::env::var("OPENAI_REALTIME_MODEL").unwrap_or("gpt-4o-realtime-preview".into());
+    let model_id = std::env::var("OPENAI_REALTIME_MODEL").unwrap_or("gpt-realtime".into());
 
     info!("connecting to OpenAI Realtime with model {model_id}");
 

@@ -5,8 +5,8 @@
 //!
 //! ```toml
 //! [dependencies]
-//! adk-rust = "1.0.1"
-//! adk-tool = "1.0.1"
+//! adk-rust = "1.1.0"
+//! adk-tool = "1.1.0"
 //! schemars = "1"
 //! serde = { version = "1", features = ["derive"] }
 //! ```

@@ -52,10 +52,10 @@ impl MemoryToolConfig {
         if self.max_results < 1 || self.max_results > 100 {
             return Err(AdkError::tool("max_results must be between 1 and 100"));
         }
-        if let Some(score) = self.min_relevance_score {
-            if !(0.0..=1.0).contains(&score) {
-                return Err(AdkError::tool("min_relevance_score must be between 0.0 and 1.0"));
-            }
+        if let Some(score) = self.min_relevance_score
+            && !(0.0..=1.0).contains(&score)
+        {
+            return Err(AdkError::tool("min_relevance_score must be between 0.0 and 1.0"));
         }
         Ok(())
     }

@@ -39,7 +39,7 @@ cargo new my_agent && cd my_agent
 
 ```toml
 [dependencies]
-adk-rust = "1.0.1"
+adk-rust = "1.1.0"
 tokio = { version = "1.40", features = ["full"] }
 dotenvy = "0.15"
 ```
@@ -141,7 +141,7 @@ Build voice-enabled AI assistants with bidirectional audio streaming:
 use adk_realtime::{RealtimeAgent, openai::OpenAIRealtimeModel, RealtimeModel};
 
 let model: Arc<dyn RealtimeModel> = Arc::new(
-    OpenAIRealtimeModel::new(&api_key, "gpt-4o-realtime-preview-2024-12-17")
+    OpenAIRealtimeModel::new(&api_key, "gpt-realtime")
 );
 
 let agent = RealtimeAgent::builder("voice_assistant")
@@ -290,23 +290,23 @@ cargo run -- serve --port 8080
 
 ```toml
 # Minimal (default) — agents, Gemini, runner, sessions (fastest build)
-adk-rust = "1.0.1"
+adk-rust = "1.1.0"
 
 # Standard — minimal + tools, memory, OpenAI, Anthropic, server, auth,
 # graph, eval, guardrails, skills, plugins, artifacts, telemetry
-adk-rust = { version = "1.0.1", features = ["standard"] }
+adk-rust = { version = "1.1.0", features = ["standard"] }
 
 # Enterprise — standard + realtime, browser, rag, payments, awp
-adk-rust = { version = "1.0.1", features = ["enterprise"] }
+adk-rust = { version = "1.1.0", features = ["enterprise"] }
 
 # Full — enterprise + experimental crates (audio, code, sandbox)
-adk-rust = { version = "1.0.1", features = ["full"] }
+adk-rust = { version = "1.1.0", features = ["full"] }
 
 # Custom
-adk-rust = { version = "1.0.1", default-features = false, features = ["agents", "gemini", "tools"] }
+adk-rust = { version = "1.1.0", default-features = false, features = ["agents", "gemini", "tools"] }
 
 # With new providers (forwarded to adk-model)
-adk-model = { version = "1.0.1", features = ["fireworks", "together", "mistral", "perplexity", "cerebras", "sambanova", "bedrock", "azure-ai"] }
+adk-model = { version = "1.1.0", features = ["fireworks", "together", "mistral", "perplexity", "cerebras", "sambanova", "bedrock", "azure-ai"] }
 ```
 
 ## Documentation

@@ -11,6 +11,7 @@ use crate::session::ContextMutationOutcome;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 
 /// Internal state machine tracking the resumability status of the RealtimeRunner.
@@ -235,9 +236,28 @@ impl RealtimeRunnerBuilder {
         self.tool(definition, FnToolHandler::new(handler))
     }
 
+    /// Register a tool with an `Arc<dyn ToolHandler>` directly.
+    ///
+    /// This is useful when you already have a shared handler and want to avoid
+    /// an extra `Arc` wrapping that the `tool()` method would perform.
+    pub fn tool_arc(mut self, definition: ToolDefinition, handler: Arc<dyn ToolHandler>) -> Self {
+        let name = definition.name.clone();
+        self.tools.insert(name, (definition, handler));
+        self
+    }
+
     /// Set the event handler.
     pub fn event_handler(mut self, handler: impl EventHandler + 'static) -> Self {
         self.event_handler = Some(Arc::new(handler));
+        self
+    }
+
+    /// Set the event handler from an `Arc<dyn EventHandler>` directly.
+    ///
+    /// This is useful when you already have a shared handler and want to avoid
+    /// an extra `Arc` wrapping that the `event_handler()` method would perform.
+    pub fn event_handler_arc(mut self, handler: Arc<dyn EventHandler>) -> Self {
+        self.event_handler = Some(handler);
         self
     }
 
@@ -261,6 +281,7 @@ impl RealtimeRunnerBuilder {
             event_handler: self.event_handler.unwrap_or_else(|| Arc::new(NoOpEventHandler)),
             session: Arc::new(RwLock::new(None)),
             state: Arc::new(RwLock::new(RunnerState::Idle)),
+            pending_tool_response: AtomicBool::new(false),
         })
     }
 }
@@ -281,7 +302,7 @@ impl RealtimeRunnerBuilder {
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<()> {
-///     let model = OpenAIRealtimeModel::new(api_key, "gpt-4o-realtime-preview-2024-12-17");
+///     let model = OpenAIRealtimeModel::new(api_key, "gpt-realtime");
 ///
 ///     let runner = RealtimeRunner::builder()
 ///         .model(Box::new(model))
@@ -310,6 +331,9 @@ pub struct RealtimeRunner {
     event_handler: Arc<dyn EventHandler>,
     session: Arc<RwLock<Option<Arc<dyn crate::session::RealtimeSession>>>>,
     state: Arc<RwLock<RunnerState>>,
+    /// Set when tool output(s) have been sent for the in-flight response and a
+    /// single follow-up `create_response` is owed once that response finishes.
+    pending_tool_response: AtomicBool,
 }
 
 impl RealtimeRunner {
@@ -587,6 +611,14 @@ impl RealtimeRunner {
         session.send_text(text).await
     }
 
+    /// Send a base64-encoded video/image frame (e.g. `image/jpeg`) for
+    /// multimodal input, where the provider supports it (Gemini Live; OpenAI as
+    /// an image-in-context item).
+    pub async fn send_video_frame(&self, mime_type: &str, data_base64: &str) -> Result<()> {
+        let session = self.session_handle().await?;
+        session.send_video_frame(mime_type, data_base64).await
+    }
+
     /// Commit the audio buffer (for manual VAD mode).
     pub async fn commit_audio(&self) -> Result<()> {
         let session = self.session_handle().await?;
@@ -658,6 +690,23 @@ impl RealtimeRunner {
         session.send_tool_response(response).await
     }
 
+    /// Execute a tool call against the registered handlers, sending the result
+    /// back to the model when `auto_respond_tools` is enabled.
+    ///
+    /// This is the same dispatch the [`run`](Self::run) loop performs for a
+    /// `response.function_call_arguments.done` event, exposed so that callers
+    /// driving the session manually via [`next_event`](Self::next_event) — such
+    /// as [`IntegratedRealtimeRunner`](crate::integration::IntegratedRealtimeRunner) —
+    /// can execute tools without re-implementing the lookup/respond logic.
+    pub async fn dispatch_tool_call(
+        &self,
+        call_id: &str,
+        name: &str,
+        arguments: &str,
+    ) -> Result<()> {
+        self.execute_tool_call(call_id, name, arguments).await
+    }
+
     /// Run the event loop, processing events until disconnected.
     pub async fn run(&self) -> Result<()> {
         loop {
@@ -727,6 +776,9 @@ impl RealtimeRunner {
             }
             ServerEvent::ResponseDone { .. } => {
                 self.event_handler.on_response_done().await?;
+                // If this response dispatched tool call(s), send the one owed
+                // follow-up response now that it's closed.
+                self.respond_after_tools().await?;
                 self.check_resumption_queue().await?;
             }
             ServerEvent::FunctionCallDone { call_id, name, arguments, .. } => {
@@ -844,10 +896,33 @@ impl RealtimeRunner {
             let response = ToolResponse { call_id: call_id.to_string(), output: result };
 
             if let Ok(session) = self.session_handle().await {
-                session.send_tool_response(response).await?;
+                // Send the output now, but defer the response trigger: several
+                // parallel tool calls in one response must produce a *single*
+                // `create_response`, issued once the dispatch response finishes
+                // (see `respond_after_tools`). Firing one per output collides
+                // with the still-active response on OpenAI.
+                session.send_tool_output(response).await?;
+                self.pending_tool_response.store(true, Ordering::Release);
             }
         }
 
+        Ok(())
+    }
+
+    /// Trigger the single follow-up response owed after a tool-dispatching turn.
+    ///
+    /// Call this when a response finishes (`ResponseDone`). If tool output(s)
+    /// were sent back during that response (`auto_respond_tools`), the model now
+    /// needs one `create_response` to speak its answer — issued here, after the
+    /// dispatch response is closed and every parallel tool output is in, rather
+    /// than once per tool call. Gemini's `create_response` is a no-op, so this is
+    /// safely uniform across providers. No-op when nothing is pending.
+    pub async fn respond_after_tools(&self) -> Result<()> {
+        if self.pending_tool_response.swap(false, Ordering::AcqRel)
+            && let Ok(session) = self.session_handle().await
+        {
+            session.create_response().await?;
+        }
         Ok(())
     }
 
@@ -857,5 +932,181 @@ impl RealtimeRunner {
             session.close().await?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tool_response_tests {
+    use super::*;
+    use crate::audio::{AudioChunk, AudioFormat};
+    use crate::events::{ClientEvent, ToolResponse};
+    use crate::model::RealtimeModel;
+    use crate::session::{BoxedSession, ContextMutationOutcome, RealtimeSession};
+    use std::pin::Pin;
+    use std::sync::atomic::AtomicUsize;
+
+    /// A model just good enough to satisfy the builder (never connects in tests).
+    struct MockModel;
+
+    #[async_trait]
+    impl RealtimeModel for MockModel {
+        fn provider(&self) -> &str {
+            "mock"
+        }
+        fn model_id(&self) -> &str {
+            "mock"
+        }
+        fn supported_input_formats(&self) -> Vec<AudioFormat> {
+            vec![]
+        }
+        fn supported_output_formats(&self) -> Vec<AudioFormat> {
+            vec![]
+        }
+        fn available_voices(&self) -> Vec<&str> {
+            vec![]
+        }
+        async fn connect(&self, _config: RealtimeConfig) -> Result<BoxedSession> {
+            Err(RealtimeError::connection("mock model does not connect"))
+        }
+    }
+
+    /// Records how the runner talks to the wire: tool outputs, create_response
+    /// calls, and the combined send_tool_response (which the runner must NOT use
+    /// on the auto-dispatch path).
+    #[derive(Default)]
+    struct Counts {
+        tool_output: AtomicUsize,
+        tool_response: AtomicUsize,
+        create_response: AtomicUsize,
+    }
+
+    struct RecordingSession {
+        counts: Arc<Counts>,
+    }
+
+    #[async_trait]
+    impl RealtimeSession for RecordingSession {
+        fn session_id(&self) -> &str {
+            "mock-session"
+        }
+        fn is_connected(&self) -> bool {
+            true
+        }
+        async fn send_audio(&self, _audio: &AudioChunk) -> Result<()> {
+            Ok(())
+        }
+        async fn send_audio_base64(&self, _audio: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn send_text(&self, _text: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn send_tool_response(&self, _response: ToolResponse) -> Result<()> {
+            self.counts.tool_response.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        async fn send_tool_output(&self, _response: ToolResponse) -> Result<()> {
+            self.counts.tool_output.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        async fn commit_audio(&self) -> Result<()> {
+            Ok(())
+        }
+        async fn clear_audio(&self) -> Result<()> {
+            Ok(())
+        }
+        async fn create_response(&self) -> Result<()> {
+            self.counts.create_response.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        async fn interrupt(&self) -> Result<()> {
+            Ok(())
+        }
+        async fn send_event(&self, _event: ClientEvent) -> Result<()> {
+            Ok(())
+        }
+        async fn next_event(&self) -> Option<Result<ServerEvent>> {
+            None
+        }
+        fn events(&self) -> Pin<Box<dyn futures::Stream<Item = Result<ServerEvent>> + Send + '_>> {
+            Box::pin(futures::stream::empty())
+        }
+        async fn close(&self) -> Result<()> {
+            Ok(())
+        }
+        async fn mutate_context(&self, _config: RealtimeConfig) -> Result<ContextMutationOutcome> {
+            Ok(ContextMutationOutcome::Applied)
+        }
+    }
+
+    fn tool_def(name: &str) -> ToolDefinition {
+        ToolDefinition { name: name.into(), description: None, parameters: None }
+    }
+
+    fn ok_tool() -> FnToolHandler<impl Fn(&ToolCall) -> Result<serde_json::Value> + Send + Sync> {
+        FnToolHandler::new(|_call: &ToolCall| Ok(serde_json::json!({ "ok": true })))
+    }
+
+    fn function_call(call_id: &str, name: &str) -> ServerEvent {
+        ServerEvent::FunctionCallDone {
+            event_id: "evt".into(),
+            response_id: "resp".into(),
+            item_id: "item".into(),
+            output_index: 0,
+            call_id: call_id.into(),
+            name: name.into(),
+            arguments: "{}".into(),
+        }
+    }
+
+    fn response_done() -> ServerEvent {
+        ServerEvent::ResponseDone { event_id: "evt".into(), response: serde_json::json!({}) }
+    }
+
+    /// Two parallel tool calls in one response must produce exactly one
+    /// `create_response` — issued after the dispatch response finishes — not one
+    /// per tool (which collides with the still-active response on OpenAI).
+    #[tokio::test]
+    async fn parallel_tool_calls_trigger_a_single_response() {
+        let counts = Arc::new(Counts::default());
+        let runner = RealtimeRunner::builder()
+            .model(Arc::new(MockModel) as BoxedModel)
+            .tool(tool_def("get_weather"), ok_tool())
+            .tool(tool_def("get_time"), ok_tool())
+            .build()
+            .unwrap();
+        *runner.session.write().await =
+            Some(Arc::new(RecordingSession { counts: counts.clone() }) as Arc<dyn RealtimeSession>);
+
+        // One model response dispatching two tool calls, then ending.
+        runner.handle_event(function_call("c1", "get_weather")).await.unwrap();
+        runner.handle_event(function_call("c2", "get_time")).await.unwrap();
+        runner.handle_event(response_done()).await.unwrap();
+
+        assert_eq!(counts.tool_output.load(Ordering::SeqCst), 2, "both outputs sent");
+        assert_eq!(counts.create_response.load(Ordering::SeqCst), 1, "exactly one response");
+        assert_eq!(
+            counts.tool_response.load(Ordering::SeqCst),
+            0,
+            "auto path must use send_tool_output, not the output+create combo"
+        );
+
+        // The follow-up (spoken-answer) response finishing creates nothing more.
+        runner.handle_event(response_done()).await.unwrap();
+        assert_eq!(counts.create_response.load(Ordering::SeqCst), 1, "no extra response");
+    }
+
+    /// A response with no tool calls must not trigger an auto follow-up response.
+    #[tokio::test]
+    async fn plain_response_triggers_no_auto_response() {
+        let counts = Arc::new(Counts::default());
+        let runner =
+            RealtimeRunner::builder().model(Arc::new(MockModel) as BoxedModel).build().unwrap();
+        *runner.session.write().await =
+            Some(Arc::new(RecordingSession { counts: counts.clone() }) as Arc<dyn RealtimeSession>);
+
+        runner.handle_event(response_done()).await.unwrap();
+        assert_eq!(counts.create_response.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.tool_output.load(Ordering::SeqCst), 0);
     }
 }

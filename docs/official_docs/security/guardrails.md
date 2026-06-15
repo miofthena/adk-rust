@@ -15,10 +15,10 @@ Guardrails validate and transform agent inputs and outputs to ensure safety, com
 
 ```toml
 [dependencies]
-adk-guardrail = "1.0.1"
+adk-guardrail = "1.1.0"
 
 # For JSON schema validation
-adk-guardrail = { version = "1.0.1", features = ["schema"] }
+adk-guardrail = { version = "1.1.0", features = ["schema"] }
 ```
 
 ## Core Concepts

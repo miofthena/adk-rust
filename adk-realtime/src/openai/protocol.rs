@@ -45,49 +45,77 @@ pub trait OpenAITransportLink: Send + Sync {
     /// Trigger a specific native configuration logic payload if needed by the transport
     /// Note: mostly WebRTC uses configure_session dynamically over the data channel
     async fn configure_session(&self, config: crate::config::RealtimeConfig) -> Result<()> {
-        // By default sending a standard update
         let update_json = convert_config_to_openai(&config);
         let event = json!({
             "type": "session.update",
             "session": update_json
         });
+        tracing::info!(payload = %serde_json::to_string_pretty(&event).unwrap_or_default(), "sending session.update to OpenAI");
         self.send_raw(&event).await
     }
 }
 
 /// Convert this configuration to an OpenAI specific session configuration.
 ///
-/// This follows the schema expected by the `session.update` client event
-/// for both WebSocket and WebRTC transports.
+/// This follows the schema expected by the `session.update` client event for
+/// the GA Realtime API (the nested `audio.input`/`audio.output` structure).
+///
+/// Reference: <https://developers.openai.com/api/docs/guides/realtime>
+///
+/// # Provider-specific overrides via `extra`
+///
+/// Any GA session field not modelled by [`RealtimeConfig`] can be supplied
+/// through [`config.extra`](crate::config::RealtimeConfig::extra), which is
+/// merged into the generated session object (caller values win). This is the
+/// idiomatic way to set, e.g., `reasoning` (recommended for `gpt-realtime-2`:
+/// `{"reasoning": {"effort": "low"}}`) or `speed` without a crate change.
+/// `reasoning.effort` is intentionally **not** sent by default, because the
+/// non-reasoning GA `gpt-realtime` model rejects it.
 pub(crate) fn convert_config_to_openai(config: &crate::config::RealtimeConfig) -> Value {
     use crate::config::VadMode;
 
-    let mut session_config = json!({});
+    let mut session_config = json!({
+        "type": "realtime"
+    });
 
+    // Instructions (system prompt)
     if let Some(instruction) = &config.instruction {
         session_config["instructions"] = json!(instruction);
     }
 
-    if let Some(voice) = &config.voice {
-        session_config["voice"] = json!(voice);
-    }
-
+    // Output modalities — GA API uses "output_modalities"
+    // Default to ["audio"] for voice agents
     if let Some(modalities) = &config.modalities {
-        session_config["modalities"] = json!(modalities);
+        session_config["output_modalities"] = json!(modalities);
+    } else {
+        session_config["output_modalities"] = json!(["audio"]);
     }
 
-    if let Some(input_format) = &config.input_audio_format {
-        session_config["input_audio_format"] = json!(input_format.to_string());
+    // Max output tokens — GA renamed `max_response_output_tokens` → `max_output_tokens`.
+    if let Some(max_tokens) = config.max_response_output_tokens {
+        session_config["max_output_tokens"] = json!(max_tokens);
     }
 
-    if let Some(output_format) = &config.output_audio_format {
-        session_config["output_audio_format"] = json!(output_format.to_string());
+    // ─── Audio configuration (nested GA format) ─────────────────────────────
+    let mut audio_input = json!({
+        "format": { "type": "audio/pcm", "rate": 24000 }
+    });
+
+    // Transcription model is config-driven (e.g. "whisper-1", "gpt-4o-transcribe",
+    // "gpt-realtime-whisper"). Language is left unset so the API auto-detects;
+    // set it via `extra` if you need to pin it.
+    if let Some(transcription) = &config.input_audio_transcription {
+        audio_input["transcription"] = json!({ "model": transcription.model });
     }
 
+    // Turn detection / VAD — nested under audio.input in GA
     if let Some(vad) = &config.turn_detection {
-        let vad_config = match vad.mode {
+        let turn_detection = match vad.mode {
             VadMode::ServerVad => {
-                let mut cfg = json!({ "type": "server_vad" });
+                let mut cfg = json!({
+                    "type": "server_vad",
+                    "interrupt_response": true
+                });
                 if let Some(ms) = vad.silence_duration_ms {
                     cfg["silence_duration_ms"] = json!(ms);
                 }
@@ -97,22 +125,40 @@ pub(crate) fn convert_config_to_openai(config: &crate::config::RealtimeConfig) -
                 if let Some(prefix) = vad.prefix_padding_ms {
                     cfg["prefix_padding_ms"] = json!(prefix);
                 }
-                cfg
+                Some(cfg)
             }
             VadMode::SemanticVad => {
-                let mut cfg = json!({ "type": "semantic_vad" });
+                let mut cfg = json!({
+                    "type": "semantic_vad",
+                    "interrupt_response": true
+                });
                 if let Some(eagerness) = &vad.eagerness {
                     cfg["eagerness"] = json!(eagerness);
                 }
-                cfg
+                Some(cfg)
             }
-            VadMode::None => {
-                json!(null)
-            }
+            VadMode::None => None,
         };
-        session_config["turn_detection"] = vad_config;
+        if let Some(td) = turn_detection {
+            audio_input["turn_detection"] = td;
+        }
     }
 
+    // Audio output
+    let mut audio_output = json!({
+        "format": { "type": "audio/pcm", "rate": 24000 }
+    });
+
+    if let Some(voice) = &config.voice {
+        audio_output["voice"] = json!(voice);
+    }
+
+    session_config["audio"] = json!({
+        "input": audio_input,
+        "output": audio_output
+    });
+
+    // ─── Tools ──────────────────────────────────────────────────────────────
     if let Some(tools) = &config.tools {
         let tool_defs: Vec<Value> = tools
             .iter()
@@ -133,18 +179,19 @@ pub(crate) fn convert_config_to_openai(config: &crate::config::RealtimeConfig) -
         session_config["tools"] = json!(tool_defs);
     }
 
-    if let Some(temp) = config.temperature {
-        session_config["temperature"] = json!(temp);
+    if let Some(tool_choice) = &config.tool_choice {
+        session_config["tool_choice"] = json!(tool_choice);
     }
 
-    if let Some(max_tokens) = config.max_response_output_tokens {
-        session_config["max_response_output_tokens"] = json!(max_tokens);
-    }
-
-    if let Some(transcription) = &config.input_audio_transcription {
-        session_config["input_audio_transcription"] = json!({
-            "model": transcription.model
-        });
+    // Provider-specific overrides: merge `extra` object keys into the session
+    // (caller values win). This is the supported escape hatch for GA fields the
+    // typed config doesn't model — e.g. `reasoning`, `speed`, `prompt`.
+    if let Some(Value::Object(extra)) = &config.extra
+        && let Value::Object(session) = &mut session_config
+    {
+        for (key, value) in extra {
+            session.insert(key.clone(), value.clone());
+        }
     }
 
     session_config
@@ -194,7 +241,25 @@ impl<T: OpenAITransportLink> RealtimeSession for OpenAIProtocolHandler<T> {
         self.transport.send_raw(&event).await
     }
 
-    async fn send_tool_response(&self, response: ToolResponse) -> Result<()> {
+    async fn send_video_frame(&self, mime_type: &str, data_base64: &str) -> Result<()> {
+        // OpenAI Realtime accepts images as an input_image content part on a
+        // conversation item (data URL). Callers should throttle frames — this is
+        // image-in-context, not a continuous video stream like Gemini.
+        let event = json!({
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "user",
+                "content": [{
+                    "type": "input_image",
+                    "image_url": format!("data:{mime_type};base64,{data_base64}")
+                }]
+            }
+        });
+        self.transport.send_raw(&event).await
+    }
+
+    async fn send_tool_output(&self, response: ToolResponse) -> Result<()> {
         let output = match &response.output {
             Value::String(s) => s.clone(),
             other => serde_json::to_string(other).unwrap_or_default(),
@@ -208,9 +273,14 @@ impl<T: OpenAITransportLink> RealtimeSession for OpenAIProtocolHandler<T> {
                 "output": output
             }
         });
-        self.transport.send_raw(&event).await?;
+        self.transport.send_raw(&event).await
+    }
 
-        // Trigger response after tool output
+    async fn send_tool_response(&self, response: ToolResponse) -> Result<()> {
+        // Output, then one response trigger. For *parallel* tool calls the runner
+        // uses `send_tool_output` per call + a single `create_response` once the
+        // dispatch response is done, so it must not fire one create per output.
+        self.send_tool_output(response).await?;
         self.create_response().await
     }
 

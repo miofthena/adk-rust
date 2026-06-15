@@ -212,7 +212,7 @@ const DATA_CHANNEL_LABEL: &str = "oai-events";
 ///
 /// let session = OpenAIWebRTCSession::connect(
 ///     "sk-...",
-///     "gpt-4o-realtime-preview-2024-12-17",
+///     "gpt-realtime",
 ///     RealtimeConfig::default(),
 /// ).await?;
 /// ```
@@ -288,7 +288,7 @@ impl OpenAIWebRTCSession {
     /// # Arguments
     ///
     /// * `api_key` — OpenAI API key for authentication.
-    /// * `model_id` — Model identifier (e.g., "gpt-4o-realtime-preview-2024-12-17").
+    /// * `model_id` — Model identifier (e.g., "gpt-realtime").
     /// * `config` — Realtime session configuration.
     ///
     /// # Errors

@@ -17,8 +17,8 @@ The Functional API (`functional` feature in `adk-graph`) provides a higher-level
 
 ```toml
 [dependencies]
-adk-graph = { version = "1.0.1", features = ["functional"] }
-adk-rust-macros = "1.0.1"
+adk-graph = { version = "1.1.0", features = ["functional"] }
+adk-rust-macros = "1.1.0"
 ```
 
 ## Core Types

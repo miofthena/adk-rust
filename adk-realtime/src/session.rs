@@ -64,8 +64,29 @@ pub trait RealtimeSession: Send + Sync {
     /// Send a text message.
     async fn send_text(&self, text: &str) -> Result<()>;
 
-    /// Send a tool/function response.
+    /// Send a single video/image frame (base64-encoded, e.g. a JPEG) to the
+    /// model for multimodal input. `mime_type` is the frame's media type
+    /// (e.g. `image/jpeg`). The default is a no-op for providers/sessions that
+    /// don't accept visual input.
+    async fn send_video_frame(&self, _mime_type: &str, _data_base64: &str) -> Result<()> {
+        Ok(())
+    }
+
+    /// Send a tool/function response (output **and** a response trigger).
     async fn send_tool_response(&self, response: ToolResponse) -> Result<()>;
+
+    /// Send a tool/function output **without** triggering a response.
+    ///
+    /// When one model response dispatches several parallel tool calls, send each
+    /// output with this method and then call
+    /// [`create_response`](Self::create_response) exactly once — issuing a
+    /// `response.create` per output would collide with the still-active response
+    /// on providers like OpenAI. The default delegates to
+    /// [`send_tool_response`](Self::send_tool_response) for backends that do not
+    /// separate the two.
+    async fn send_tool_output(&self, response: ToolResponse) -> Result<()> {
+        self.send_tool_response(response).await
+    }
 
     /// Commit the audio buffer (for manual VAD mode).
     async fn commit_audio(&self) -> Result<()>;

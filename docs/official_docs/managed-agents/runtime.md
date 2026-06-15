@@ -23,15 +23,15 @@ Add the feature to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-adk-rust = { version = "1.0.1", features = ["managed-runtime"] }
+adk-rust = { version = "1.1.0", features = ["managed-runtime"] }
 ```
 
 Or use the `adk-managed` crate directly:
 
 ```toml
 [dependencies]
-adk-managed = "1.0.1"
-adk-session = "1.0.1"
+adk-managed = "1.1.0"
+adk-session = "1.1.0"
 ```
 
 ### Minimal Example (ScriptedLlm — no API key)

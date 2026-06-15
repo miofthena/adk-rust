@@ -5,7 +5,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! adk-rust = { version = "1.0.1", features = ["openai"] }
+//! adk-rust = { version = "1.1.0", features = ["openai"] }
 //! ```
 
 use adk_rust::Launcher;

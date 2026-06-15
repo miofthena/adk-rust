@@ -14,10 +14,10 @@ ACP is a protocol for agent-to-agent communication over stdio or network transpo
 
 ```toml
 [dependencies]
-adk-acp = "1.0.1"
+adk-acp = "1.1.0"
 
 # Or via the umbrella crate
-adk-rust = { version = "1.0.1", features = ["acp"] }
+adk-rust = { version = "1.1.0", features = ["acp"] }
 ```
 
 ## AcpAgentTool — Remote Agent as a Tool

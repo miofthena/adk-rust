@@ -26,14 +26,14 @@ OpenTelemetry integration for Rust Agent Development Kit (ADK-Rust) agent observ
 
 ```toml
 [dependencies]
-adk-telemetry = "1.0.1"
+adk-telemetry = "1.1.0"
 ```
 
 Or use the meta-crate:
 
 ```toml
 [dependencies]
-adk-rust = { version = "1.0.1", features = ["telemetry"] }
+adk-rust = { version = "1.1.0", features = ["telemetry"] }
 ```
 
 ## Quick Start
@@ -84,7 +84,7 @@ deploy. Enable the `sqlite` feature (`adk-rust` forwards it as
 `telemetry-sqlite`):
 
 ```toml
-adk-telemetry = { version = "1.0.1", features = ["sqlite"] }
+adk-telemetry = { version = "1.1.0", features = ["sqlite"] }
 ```
 
 ```rust

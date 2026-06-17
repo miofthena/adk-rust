@@ -16,6 +16,10 @@ Agent implementations for ADK-Rust (LLM, Custom, Workflow agents).
 - `ParallelAgent` — execute agents concurrently
 - `LoopAgent` — iterate until exit condition or max iterations
 - `ConditionalAgent` — branch based on a function condition
+- `CodingAgent` — (feature `coding`) a coding-agent harness over `LlmAgent`: wires the
+  [`adk-devtools`](https://crates.io/crates/adk-devtools) toolset, a planning `write_todos`
+  tool, and a minimal prompt for working on a codebase. See the
+  [Coding Agent guide](https://github.com/zavora-ai/adk-rust/blob/main/docs/official_docs/coding-agent/index.md).
 - `LlmConditionalAgent` — LLM-powered multi-way routing to sub-agents
 - `LlmEventSummarizer` — LLM-based context compaction for long conversations
 

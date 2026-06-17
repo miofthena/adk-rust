@@ -92,6 +92,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   order must exist; warns on versioned internal dev-deps).
 - **adk-anthropic**: added support for WebFetch to mirror the support
   for WebSearch.
+- **Coding agent — a native, end-to-end coding-agent capability.**
+  - **adk-devtools** (new crate) — the inner-loop developer toolset
+    (`read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`) as a
+    `DevToolset`, all scoped to a sandboxed `Workspace` (path containment,
+    read-only mode, bash timeout/output caps). `edit_file` requires a prior
+    `read_file` and a unique match by default.
+  - **adk-agent: `CodingAgent` harness** (`coding` feature) — one-call
+    `CodingAgent::builder()` that wires the dev toolset, a planning `write_todos`
+    tool, and a minimal coding prompt onto an `LlmAgent`; `coding.todos()`
+    surfaces the live plan. Default `adk-agent` build is unchanged (feature off).
+  - **adk-cli: native `code`, `goal`, and `ultracode` commands.** `code` runs a
+    one-shot task; `goal` is autonomous goal mode that loops plan → act → verify
+    against a `--until` success command, **durable & resumable** via an atomic
+    on-disk checkpoint (`<dir>/.adk/goal.json`, `--resume`); `ultracode` fans out
+    to parallel correctness/edge-case/style reviewers and revises until they
+    approve. Keys resolve non-interactively from the environment.
+  - **adk-graph: fan-in support on `StateGraph`** — new `add_deferred_node_fn`
+    and `mark_deferred` bring deferred fan-in nodes (run once, after all upstream
+    paths complete) to the core builder, at parity with `GraphAgentBuilder`.
+    Enables correct fan-out/fan-in (parallel branches + a single aggregator).
+  - **New examples**: `coding_agent` (demo / scenario `tour` / `multiturn` build),
+    `coding_graph` (ultra-review workflow), `coding_goal` (durable autonomous goal
+    loop) — each a real agent that self-verifies by running the produced code.
+  - Design: `docs/design/coding-agent.md`; guide: `docs/official_docs/coding-agent/`.
 
 ### Fixed
 

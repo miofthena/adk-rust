@@ -10,7 +10,8 @@ Command-line launcher for Rust Agent Development Kit (ADK-Rust) agents.
 
 `adk-cli` provides two things:
 
-- **`adk-rust` binary** — chat with an AI agent (6 providers), serve a web UI, or manage skills
+- **`adk-rust` binary** — chat with an AI agent (6 providers), serve a web UI, run the
+  **coding agent** (`code` / `goal` / `ultracode`), or manage skills
 - **`Launcher` library** — embed a REPL and web server into any custom agent binary
 
 ## Quick Start
@@ -29,7 +30,15 @@ adk-rust chat
 
 # Web server
 adk-rust serve --port 3000
+
+# Coding agent (sandboxed to the directory)
+adk-rust code "make the failing test pass"
+adk-rust goal "all tests green" --until "cargo test" --resume   # autonomous, durable
+adk-rust ultracode "add input validation"                       # parallel ultra-review
 ```
+
+See the [Coding Agent guide](https://github.com/zavora-ai/adk-rust/blob/main/docs/official_docs/coding-agent/cli.md)
+for `code` / `goal` / `ultracode`.
 
 ## Supported Providers
 

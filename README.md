@@ -210,6 +210,7 @@ Built-in tools:
 | `adk-anthropic` | Anthropic client | Dedicated Anthropic API client with streaming, thinking, caching, citations, vision, PDF, pricing |
 | `adk-mistralrs` | Native local inference | mistral.rs v0.8 — **Gemma 4**, Qwen 3.5, Voxtral, ISQ/MXFP4 quantization, LoRA adapters |
 | `adk-tool` | Tool system and extensibility | `FunctionTool`, Google Search, MCP protocol with elicitation, schema validation |
+| `adk-devtools` | Coding-agent dev tools | `read_file`/`write_file`/`edit_file`/`glob`/`grep`/`bash` as a `DevToolset`, scoped to a sandboxed `Workspace` |
 | `adk-session` | Session and state management | SQLite/in-memory backends, conversation history, state persistence |
 | `adk-artifact` | Artifact storage system | File-based storage, MIME type handling, image/PDF/video support |
 | `adk-memory` | Long-term memory | Vector embeddings, semantic search, project-scoped isolation, bi-temporal knowledge graph (`GraphMemoryService`), 6 backends |
@@ -539,6 +540,41 @@ Examples live in the dedicated [adk-playground](https://github.com/zavora-ai/adk
 | [adk-playground](https://github.com/zavora-ai/adk-playground) | 120+ working examples for every feature and provider |
 
 ## Advanced Features
+
+### Coding Agent
+
+A native coding agent: read/edit/run code in a **sandboxed workspace**, plan with
+todos, iterate toward a goal autonomously, and orchestrate parallel reviewers —
+on any provider. Build one in a single call:
+
+```rust
+use adk_agent::coding::CodingAgent;
+use adk_devtools::Workspace;
+
+let coding = CodingAgent::builder()
+    .model(model)
+    .workspace(Workspace::new("./my-repo"))
+    .build()?;
+// coding.agent() -> Arc<dyn Agent> for a Runner; coding.todos() surfaces the plan
+```
+
+Or use the native CLI commands:
+
+```bash
+adk-rust code "make the failing test pass"                       # one-shot task
+adk-rust goal "all tests green" --until "cargo test" --resume    # autonomous, durable goal mode
+adk-rust ultracode "add input validation"                        # parallel ultra-review
+```
+
+- **`code`** — one-shot tasks in a sandboxed dir (`adk-devtools`: read/write/edit/glob/grep/bash).
+- **`goal`** — Codex/Hermes-style autonomous loop (plan → act → verify against a
+  `--until` command), **durable & resumable** via an on-disk checkpoint.
+- **`ultracode`** — Claude Code-style fan-out to parallel correctness/edge-case/style
+  reviewers on `adk-graph`, revising until they approve.
+
+Examples: [`coding_agent`](examples/coding_agent), [`coding_graph`](examples/coding_graph),
+[`coding_goal`](examples/coding_goal). Full guide:
+[docs/official_docs/coding-agent](docs/official_docs/coding-agent/index.md).
 
 ### Realtime Voice Agents
 

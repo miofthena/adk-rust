@@ -16,6 +16,7 @@ Graph-based workflow orchestration for Rust Agent Development Kit (ADK-Rust) age
 - **AgentNode**: Wrap LLM agents as graph nodes with custom input/output mappers
 - **Cyclic Support**: Native support for loops and iterative reasoning (ReAct pattern)
 - **Conditional Routing**: Dynamic edge routing based on state
+- **Fan-out / fan-in**: parallel branches run concurrently in a super-step; declare an aggregator with `add_deferred_node_fn` (or `mark_deferred`) so it runs **once**, after all upstream paths complete
 - **State Management**: Typed state with reducers (overwrite, append, sum, custom)
 - **Checkpointing**: Persistent state after each step (memory, SQLite)
 - **Durable Resume**: Automatically resume from the last checkpoint after a crash — skips already-completed nodes

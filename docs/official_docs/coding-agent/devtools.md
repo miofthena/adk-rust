@@ -1,0 +1,80 @@
+# Dev Tools (`adk-devtools`)
+
+`adk-devtools` is the inner-loop toolset a coding agent needs — read, edit,
+search, and run — with every operation **scoped to a sandboxed workspace**. It's
+a standalone, publishable crate depending only on `adk-core`, so it composes with
+any `LlmAgent` (the [`CodingAgent`](harness.md) harness wires it for you).
+
+## The tools
+
+`DevToolset` is a `Toolset` bundling six tools:
+
+| Tool | Params | Behavior |
+|------|--------|----------|
+| `read_file` | `path`, `offset?`, `limit?` | Return file contents, line-numbered |
+| `write_file` | `path`, `content` | Create/overwrite a file (creates parent dirs) |
+| `edit_file` | `path`, `old_string`, `new_string`, `replace_all?` | Exact-string replacement |
+| `glob` | `pattern`, `path?` | List files matching a glob (e.g. `src/**/*.rs`) |
+| `grep` | `pattern`, `path?`, `glob?`, `case_insensitive?` | Regex content search |
+| `bash` | `command`, `timeout_secs?` | Run a shell command in the workspace root |
+
+Two safety behaviors worth knowing:
+
+- **`edit_file` requires a prior `read_file`** of that file in the session, and
+  by default the target string must occur **exactly once** (`replace_all` to
+  override). This guards against blind overwrites.
+- **`grep`** skips common build/VCS dirs (`target`, `.git`, `node_modules`, …)
+  and binary/oversized files.
+
+## The `Workspace`
+
+A `Workspace` roots every operation at a directory and enforces a small policy:
+
+```rust
+use adk_devtools::Workspace;
+use std::time::Duration;
+
+let ws = Workspace::new("./my-repo");              // read-write, bash enabled
+let ws = Workspace::read_only("./my-repo");        // explore/plan: no writes, no bash
+let ws = Workspace::new("./my-repo")
+    .allow_bash(false)                              // file edits, but no shell
+    .bash_timeout(Duration::from_secs(60))
+    .max_output_bytes(512 * 1024);
+```
+
+- **Path containment** — any path that resolves outside the root is rejected, so
+  the agent can't read or write `../../etc/...`.
+- **Read-only mode** — `Workspace::read_only(..)` hides the mutating tools
+  entirely (the model only ever sees `read_file`/`glob`/`grep`).
+- **`bash` timeout + output caps** — long or chatty commands are bounded.
+
+## Using it directly
+
+Attach the toolset to any agent:
+
+```rust
+use adk_devtools::{DevToolset, Workspace};
+use adk_agent::LlmAgentBuilder;
+use std::sync::Arc;
+
+let agent = LlmAgentBuilder::new("coder")
+    .model(model)
+    .toolset(Arc::new(DevToolset::new(Workspace::new("./my-repo"))))
+    .build()?;
+```
+
+`DevToolset` only exposes the tools the workspace permits, so a read-only
+workspace yields a read-only agent automatically.
+
+## Sandboxing model
+
+Phase 1 runs `bash` **host-local** (`sh -c`, working directory pinned to the
+root) with a timeout — it is path-contained and bounded, but not strongly
+OS-isolated. The policy vocabulary aligns with `adk-code`'s `SandboxPolicy`; for
+strong isolation, run `bash` behind a containerized executor (see the
+[design doc](https://github.com/zavora-ai/adk-rust/blob/main/docs/design/coding-agent.md#9-security--sandboxing)).
+Combine with [`adk-guardrail`](../security/guardrails.md) (command allowlists,
+secret redaction) and [`adk-auth`](../security/access-control.md) for tokened
+tools (e.g. GitHub).
+
+Next: [The harness →](harness.md)

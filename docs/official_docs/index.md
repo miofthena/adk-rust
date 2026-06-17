@@ -28,6 +28,17 @@ Welcome to the official documentation for ADK-Rust (Agent Development Kit for Ru
 - [Graph Agents](agents/graph-agents.md) - LangGraph-style workflow orchestration
 - [Realtime Agents](agents/realtime-agents.md) - Voice-enabled agents with OpenAI/Gemini
 
+## Coding Agent
+
+A native coding agent: read/edit/run code in a sandboxed workspace, autonomous goal mode, and parallel ultra-review workflows.
+
+- [Overview](coding-agent/index.md) - Start here: the pieces, install, and a 60-second quick start
+- [Dev Tools](coding-agent/devtools.md) - `adk-devtools`: read/write/edit/glob/grep/bash + the sandboxed `Workspace`
+- [Harness](coding-agent/harness.md) - `CodingAgent` (the `coding` feature), the plan loop, `write_todos`
+- [CLI](coding-agent/cli.md) - `adk-rust code` / `goal` (durable, resumable) / `ultracode`
+- [Workflows](coding-agent/workflows.md) - Ultra-review on `adk-graph`: parallel reviewers + fan-in
+- [Examples](coding-agent/examples.md) - The three runnable example crates
+
 ## Realtime & Multimodal
 
 A dedicated, newcomer-friendly guide to building voice + multimodal agents — architecture, concepts, and runnable examples.

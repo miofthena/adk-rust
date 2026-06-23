@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **adk-agent: `CodeAgent` — a CodeAct agent** (`codeact` feature) — a peer to
+  `LlmAgent` that acts by writing and executing one code script per turn instead
+  of emitting tool calls one at a time. Tools are exposed as callable functions;
+  the script returns a tagged `ScriptOutput` (`Observation` / `Error` /
+  `FinalResult` / `TransferToAgent`). Language-agnostic via the `CodeRuntime`
+  step-wise interpreter seam (the intended adapter wraps Pydantic's Monty). The
+  agent is stateless across invocations: HITL confirmation and long-running
+  tools **suspend** by serializing the live interpreter continuation into a
+  `CodeActCheckpoint` in session state and **resume** on the next `run()`, the
+  same save-rebuild-continue model as `LlmAgent`. Tool state/artifact deltas and
+  `escalate` propagate, so an `AgentTool`-wrapped sub-agent works as a callable.
+  Tool dispatch is sequential by design (single-call seam) to keep the
+  durability model sound.
+- **adk-agent: `CodeAgent` configuration parity with `LlmAgent`** — generation
+  config (+ `temperature`/`top_p`/`top_k`/`max_output_tokens`), `tool_timeout`,
+  `output_key`, agent/global instructions (static + dynamic providers, with
+  `{state.key}` injection), `include_contents` conversation history,
+  per-invocation `toolset`s, retry budgets, circuit breaker, `on_tool_error`
+  fallbacks, `output_schema`/`output_type` validation with a correction-retry
+  loop, sub-agent transfer with
+  `disallow_transfer_to_parent`/`disallow_transfer_to_peers`, and feature-gated
+  guardrails (`guardrails`), skills (`skills`), and an `EnhancedPlugin` pipeline
+  intercepting tool and model calls (`enhanced-plugins`).
+- **adk-agent: `CodeAgent` callback surface, tool-context, and robustness** —
+  full lifecycle/interception callbacks matching `LlmAgent`
+  (`before_callback`/`after_callback`, `before_model_callback`/
+  `after_model_callback`, `before_tool_callback`/`after_tool_callback`/
+  `after_tool_callback_full`, the last with `ToolOutcome` exposed via
+  `CallbackContext::tool_outcome()`); a fresh per-call `ToolContext` that carries
+  the interpreter call id and delegates artifacts, memory, shared state, user
+  scopes, and secrets to the live invocation; full tool `EventActions`
+  propagation (`state_delta`/`artifact_delta`/`route`) with `escalate`/
+  `skip_summarization`/tool-set `transfer_to_agent` treated as terminal on the
+  inline, resume/recovery, confirmation-approval, and long-running paths; output
+  guardrails that redact the value stored under `output_key`; a SAVE-AFTER
+  checkpoint persisted before resuming an executed tool (so once it is persisted
+  recovery never re-runs the tool — an at-least-once boundary in the narrow
+  window before it lands, like `LlmAgent`); long-running completion matched by
+  call id; tool-panic capture; duplicate sub-agent-name validation;
+  max-iterations now an error; and confirmation suspends marked
+  `interrupted`/`turn_complete`. New `examples/codeact_agent` demonstrates the
+  loop end-to-end with a self-contained `CodeRuntime`.
+
 ## [1.1.0] - 2026-06-15
 
 ### Added

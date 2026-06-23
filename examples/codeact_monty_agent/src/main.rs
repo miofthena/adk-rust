@@ -4,17 +4,24 @@
 //! ([`MontyRuntime`](adk_codeact_monty::MontyRuntime)) instead of emitting one
 //! tool call at a time. The model writes a single Python script that:
 //!
-//! 1. calls the `fetch_cart` tool (via `call_tool`) to load a cart,
-//! 2. **loops in Python** to sum line items,
-//! 3. calls the `tax_rate` tool, applies it with ordinary arithmetic, and
-//! 4. returns a tagged `final_result` value.
+//! 1. reads its inputs from the environment with `os.getenv` (which user, which
+//!    tax region) — serviced in-place by the host, never as a tool call,
+//! 2. calls the `fetch_cart` tool (via `call_tool`) to load that user's cart,
+//! 3. **loops in Python** to sum line items,
+//! 4. calls the `tax_rate` tool, applies it with ordinary arithmetic, and
+//! 5. stamps the result with `datetime.now()` and returns a tagged
+//!    `final_result` value.
 //!
-//! Two tool calls become two suspend/resume cycles in Monty — the interpreter
-//! pauses at each call boundary, the agent runs the tool, and execution resumes
-//! exactly where it left off. No container, no subprocess, no API key required:
-//! a small deterministic model (`DemoLlm`) emits the script so the example always
-//! runs offline. Swap `DemoLlm` for an `adk-model` provider to drive it with a
-//! real LLM — the wiring is identical.
+//! The environment (`os.getenv` / `os.environ`) and clock (`datetime.now()` /
+//! `date.today()`) are **OS functions**: the host services them in place against
+//! the policy configured on the [`MontyRuntime`] builder, so they never become
+//! tools and never pause the agent loop. The two `call_tool` invocations, by
+//! contrast, become two suspend/resume cycles in Monty — the interpreter pauses
+//! at each call boundary, the agent runs the tool, and execution resumes exactly
+//! where it left off. No container, no subprocess, no API key required: a small
+//! deterministic model (`DemoLlm`) emits the script so the example always runs
+//! offline. Swap `DemoLlm` for an `adk-model` provider to drive it with a real
+//! LLM — the wiring is identical.
 //!
 //! ## Run
 //!
@@ -52,11 +59,21 @@ async fn main() -> anyhow::Result<()> {
 
     println!("=== ADK-Rust CodeAct × Monty (Python) example ===\n");
 
+    // Grant the script an explicit environment (read by `os.getenv`) and keep
+    // the host clock enabled (the builder default) so `datetime.now()` works.
+    // Both are OS functions: serviced in place, never tools, never pausing the
+    // loop. Everything else stays sandboxed (no filesystem, no network).
+    let runtime = MontyRuntime::builder()
+        .environ_var("CART_USER", "u-42")
+        .environ_var("TAX_REGION", "CA")
+        .system_clock(true)
+        .build();
+
     let agent: Arc<dyn Agent> = Arc::new(
         CodeAgent::builder()
             .name("cart_assistant")
             .model(Arc::new(DemoLlm))
-            .runtime(Arc::new(MontyRuntime::new()))
+            .runtime(Arc::new(runtime))
             .instruction("Price the user's shopping cart by writing Python.")
             .tool(Arc::new(FetchCartTool))
             .tool(Arc::new(TaxRateTool))
@@ -101,10 +118,12 @@ async fn main() -> anyhow::Result<()> {
 /// A deterministic model that writes one Python script, so the example runs
 /// offline. A real deployment would use an `adk-model` provider instead.
 ///
-/// The script exercises the whole point of a Python `CodeRuntime`: it calls two
-/// tools *and* does real work between them (a `for` loop, indexing, a conditional
-/// expression, arithmetic) — none of which a one-tool-call-per-turn agent could
-/// express in a single turn.
+/// The script exercises the whole point of a Python `CodeRuntime`: it reads the
+/// environment with `os.getenv`, stamps the result with `datetime.now()`, calls
+/// two tools, *and* does real work between them (a `for` loop, indexing,
+/// arithmetic) — none of which a one-tool-call-per-turn agent could express in a
+/// single turn. The OS calls are serviced in place by the host policy, so only
+/// the two `call_tool` invocations suspend/resume the interpreter.
 struct DemoLlm;
 
 #[async_trait]
@@ -122,19 +141,27 @@ impl Llm for DemoLlm {
         // exactly (a `\`-continued string literal would eat the leading spaces).
         let script = [
             "```python",
-            "cart = call_tool(\"fetch_cart\", {\"user_id\": \"u-42\"})",
+            "import os",
+            "from datetime import datetime",
+            "# Read inputs from the granted environment (serviced in place).",
+            "user = os.getenv(\"CART_USER\", \"u-0\")",
+            "region = os.getenv(\"TAX_REGION\", \"US\")",
+            "cart = call_tool(\"fetch_cart\", {\"user_id\": user})",
             "subtotal = 0.0",
             "for item in cart[\"items\"]:",
             "    subtotal = subtotal + item[\"price\"] * item[\"qty\"]",
-            "rate = call_tool(\"tax_rate\", {\"region\": \"CA\"})",
+            "rate = call_tool(\"tax_rate\", {\"region\": region})",
             "total = subtotal * (1 + rate)",
             "{",
             "    \"type\": \"final_result\",",
             "    \"value\": {",
+            "        \"user\": user,",
+            "        \"region\": region,",
             "        \"lines\": len(cart[\"items\"]),",
             "        \"subtotal\": subtotal,",
             "        \"tax_rate\": rate,",
             "        \"total\": total,",
+            "        \"priced_at\": datetime.now().isoformat(),",
             "    },",
             "}",
             "```",

@@ -353,13 +353,17 @@ pub fn from_response(response: &ChatCompletionResponse) -> LlmResponse {
         ..Default::default()
     });
 
+    // A turn that emits tool calls is not complete — tool results must still be
+    // processed and sent back to the model (issue #401).
+    let turn_complete = content.as_ref().is_none_or(|c| !c.has_function_calls());
+
     LlmResponse {
         content,
         usage_metadata: usage,
         finish_reason,
         citation_metadata: None,
         partial: false,
-        turn_complete: true,
+        turn_complete,
         interrupted: false,
         error_code: None,
         error_message: None,
@@ -379,10 +383,7 @@ pub fn create_tool_call_response(
     if let Some(ref text) = reasoning
         && !text.is_empty()
     {
-        parts.push(Part::Thinking {
-            thinking: text.clone(),
-            signature: None,
-        });
+        parts.push(Part::Thinking { thinking: text.clone(), signature: None });
     }
 
     parts.extend(tool_calls.into_iter().map(|(id, name, args)| Part::FunctionCall {
@@ -398,7 +399,8 @@ pub fn create_tool_call_response(
         finish_reason,
         citation_metadata: None,
         partial: false,
-        turn_complete: true,
+        // This response carries tool calls, so the turn continues (issue #401).
+        turn_complete: false,
         interrupted: false,
         error_code: None,
         error_message: None,
@@ -410,6 +412,18 @@ pub fn create_tool_call_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_call_response_is_not_turn_complete() {
+        // Issue #401: a response carrying tool calls must not mark the turn complete.
+        let resp = create_tool_call_response(
+            vec![("call_1".to_string(), "get_weather".to_string(), serde_json::json!({}))],
+            Some(FinishReason::Stop),
+            None,
+        );
+        assert!(!resp.turn_complete);
+        assert!(resp.content.as_ref().unwrap().has_function_calls());
+    }
 
     #[test]
     fn content_to_message_keeps_inline_attachment_payload() {

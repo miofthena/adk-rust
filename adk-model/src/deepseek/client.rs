@@ -360,15 +360,21 @@ impl Llm for DeepSeekClient {
                                                 });
                                             }
 
+                                            let content = if parts.is_empty() {
+                                                None
+                                            } else {
+                                                Some(adk_core::Content {
+                                                    role: "model".to_string(),
+                                                    parts,
+                                                })
+                                            };
+                                            // Tool-call turns are not complete (issue #401).
+                                            let turn_complete = content
+                                                .as_ref()
+                                                .is_none_or(|c| !c.has_function_calls());
+
                                             yield LlmResponse {
-                                                content: if parts.is_empty() {
-                                                    None
-                                                } else {
-                                                    Some(adk_core::Content {
-                                                        role: "model".to_string(),
-                                                        parts,
-                                                    })
-                                                },
+                                                content,
                                                 usage_metadata: chunk_response.usage.map(|u| {
                                                     adk_core::UsageMetadata {
                                                         prompt_token_count: u.prompt_tokens as i32,
@@ -382,7 +388,7 @@ impl Llm for DeepSeekClient {
                                                 }),
                                                 finish_reason,
                                                 partial: false,
-                                                turn_complete: true,
+                                                turn_complete,
                                                 ..Default::default()
                                             };
                                         } else {

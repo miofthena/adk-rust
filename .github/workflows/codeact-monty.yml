@@ -39,8 +39,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    # The workspace .cargo/config.toml pins the `wild` linker (provided by the
+    # devenv/nix shell in the main CI). Plain runners don't have it, so strip
+    # those target sections — mirrors the semver workflow.
+    - name: Neutralize wild linker config
+      run: |
+        sed -i '/\[target\.x86_64-unknown-linux-gnu\]/,/^$/d' .cargo/config.toml
+        sed -i '/\[target\.aarch64-unknown-linux-gnu\]/,/^$/d' .cargo/config.toml
+        sed -i "/\[target\.'cfg(all(target_os/,/^$/d" .cargo/config.toml
     - name: Install Rust 1.94 (workspace toolchain)
       uses: dtolnay/rust-toolchain@1.94.0
+      with:
+        components: clippy
     - name: Install cargo-nextest
       uses: taiki-e/install-action@v2
       with:
@@ -64,6 +74,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    # Same wild-linker strip as above: the root .cargo/config.toml applies to
+    # the monty crate builds that live under this repo.
+    - name: Neutralize wild linker config
+      run: |
+        sed -i '/\[target\.x86_64-unknown-linux-gnu\]/,/^$/d' .cargo/config.toml
+        sed -i '/\[target\.aarch64-unknown-linux-gnu\]/,/^$/d' .cargo/config.toml
+        sed -i "/\[target\.'cfg(all(target_os/,/^$/d" .cargo/config.toml
     - name: Install Rust 1.95 (Monty requires 1.95+)
       uses: dtolnay/rust-toolchain@1.95.0
       with:

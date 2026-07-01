@@ -124,6 +124,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New example: `streaming_bash`** — an `LlmAgent` with a web UI (Axum + WebSocket)
   that renders live `bash` output and one-shot tool results (`read_file`, `grep`,
   `glob`) from a single event feed. Also runs as a console demo (`-- cli`).
+
+### Fixed
+
+- **adk-model: `turn_complete` on tool-call responses** (#401) — `deepseek` and
+  `openai_compatible` providers no longer set `turn_complete: true` when a
+  response carries tool calls; the turn continues until tool results are
+  processed. Adds `Content::has_function_calls()` to `adk-core`. Direct
+  `LlmResponseStream` consumers can now rely on `turn_complete` instead of
+  scanning for `Part::FunctionCall`.
+
+### Added
+
 - **adk-realtime: GA realtime providers + integration tool dispatch** — OpenAI
   `gpt-realtime` and Gemini Live wired end-to-end through
   `IntegratedRealtimeRunner`, with **server-side tool execution**, transcript and

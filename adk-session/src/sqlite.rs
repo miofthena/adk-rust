@@ -260,10 +260,8 @@ impl SessionService for SqliteSessionService {
         if req.num_recent_events.is_some() {
             sql.push_str(" LIMIT ?");
         }
-        let mut query = sqlx::query(&sql)
-            .bind(&req.app_name)
-            .bind(&req.user_id)
-            .bind(&req.session_id);
+        let mut query =
+            sqlx::query(&sql).bind(&req.app_name).bind(&req.user_id).bind(&req.session_id);
         if let Some(num) = req.num_recent_events {
             query = query.bind(num as i64);
         }
@@ -275,7 +273,8 @@ impl SessionService for SqliteSessionService {
             .filter_map(|row| {
                 let llm_response = serde_json::from_str(row.get("llm_response")).ok()?;
                 let actions = serde_json::from_str(row.get("actions")).ok()?;
-                let long_running_tool_ids = serde_json::from_str(row.get("long_running_tool_ids")).ok()?;
+                let long_running_tool_ids =
+                    serde_json::from_str(row.get("long_running_tool_ids")).ok()?;
                 let timestamp: String = row.get("timestamp");
                 let timestamp = DateTime::parse_from_rfc3339(&timestamp).ok()?.with_timezone(&Utc);
                 Some(Event {

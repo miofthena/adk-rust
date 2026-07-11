@@ -92,6 +92,8 @@ pub mod instruction_template;
 pub mod intra_compaction;
 /// LLM trait, request/response types, and caching configuration.
 pub mod model;
+/// Runtime lifecycle observation hook (`RunObserver` / `RuntimeEvent`).
+pub mod observer;
 /// HTTP request context extracted by auth middleware.
 pub mod request_context;
 /// Provider-aware JSON Schema normalization for tool declarations.
@@ -138,6 +140,7 @@ pub use model::{
     CacheCapable, CitationMetadata, CitationSource, ContextCacheConfig, FinishReason,
     GenerateContentConfig, Llm, LlmRequest, LlmResponse, LlmResponseStream, UsageMetadata,
 };
+pub use observer::{RunObserver, RuntimeEvent, RuntimeEventKind};
 pub use request_context::RequestContext;
 pub use schema_adapter::{GenericSchemaAdapter, SchemaAdapter};
 pub use schema_cache::SchemaCache;

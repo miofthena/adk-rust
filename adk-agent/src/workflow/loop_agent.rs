@@ -344,6 +344,14 @@ impl InvocationContext for HistoryTrackingContext {
     fn request_metadata(&self) -> HashMap<String, serde_json::Value> {
         self.parent_ctx.request_metadata()
     }
+
+    fn run_observer(&self) -> Option<Arc<dyn adk_core::RunObserver>> {
+        self.parent_ctx.run_observer()
+    }
+
+    fn observer_sequence(&self) -> Option<Arc<std::sync::atomic::AtomicU64>> {
+        self.parent_ctx.observer_sequence()
+    }
 }
 
 #[async_trait]

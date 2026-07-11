@@ -534,6 +534,31 @@ pub trait InvocationContext: CallbackContext {
     fn cancellation_token(&self) -> Option<tokio_util::sync::CancellationToken> {
         None
     }
+
+    /// Returns the runtime lifecycle observer, if the runner threaded one
+    /// through, so agents can emit model-call [`RuntimeEvent`](crate::RuntimeEvent)s
+    /// at the provider-call boundary.
+    ///
+    /// Pairs with [`observer_sequence`](Self::observer_sequence): agent-emitted
+    /// model-call events draw their sequence number from that shared counter so
+    /// they stay monotonic with the runner's invocation/tool events. The default
+    /// returns `None` (no observer ⇒ the agent emits nothing, zero overhead);
+    /// the runner's concrete context overrides it when an observer is registered.
+    fn run_observer(&self) -> Option<Arc<dyn crate::RunObserver>> {
+        None
+    }
+
+    /// Returns the shared, per-run monotonic sequence source for runtime events,
+    /// if the runner threaded one through (always set alongside
+    /// [`run_observer`](Self::run_observer)).
+    ///
+    /// Both the runner's lifecycle wrapper and the agent's model-call emit sites
+    /// pull the next sequence number from this same counter, keeping the emitted
+    /// [`RuntimeEvent`](crate::RuntimeEvent) sequence strictly increasing across
+    /// the whole run. The default returns `None`.
+    fn observer_sequence(&self) -> Option<Arc<std::sync::atomic::AtomicU64>> {
+        None
+    }
 }
 
 // Placeholder service traits

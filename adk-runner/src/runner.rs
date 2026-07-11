@@ -15,7 +15,7 @@ use adk_skill::{SkillInjector, SkillInjectorConfig};
 use async_stream::stream;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -31,7 +31,13 @@ fn payload_hash(s: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
-/// Emit one [`RuntimeEvent`] to the observer, bumping the per-run sequence.
+/// Emit one [`RuntimeEvent`] to the observer, drawing the next number from the
+/// shared per-run sequence counter.
+///
+/// The counter is a shared [`AtomicU64`] (not a local `u64`) so the runner's
+/// lifecycle events and the agent's model-call events — emitted from
+/// `LlmAgent` via the `InvocationContext` seam — stay strictly monotonic
+/// across the whole run.
 ///
 /// Errors are logged and swallowed — observer failures never affect the run.
 /// The timestamp is stamped here (the crate has no injectable clock seam;
@@ -39,7 +45,7 @@ fn payload_hash(s: &str) -> String {
 #[allow(clippy::too_many_arguments)]
 async fn emit_runtime_event(
     observer: &Arc<dyn RunObserver>,
-    seq: &mut u64,
+    seq: &AtomicU64,
     kind: RuntimeEventKind,
     invocation_id: &str,
     session_id: &str,
@@ -47,9 +53,9 @@ async fn emit_runtime_event(
     metadata: std::collections::BTreeMap<String, String>,
     payload_ref: Option<String>,
 ) {
+    let n = seq.fetch_add(1, Ordering::SeqCst);
     let mut event =
-        RuntimeEvent::new(kind, invocation_id, session_id, agent_name, *seq, chrono::Utc::now());
-    *seq += 1;
+        RuntimeEvent::new(kind, invocation_id, session_id, agent_name, n, chrono::Utc::now());
     event.metadata = metadata;
     event.payload_ref = payload_ref;
     if let Err(e) = observer.on_event(event).await {
@@ -558,6 +564,18 @@ impl Runner {
         let observer_agent_name = self.root_agent.name().to_string();
         let observer_invocation_id = invocation_id.clone();
 
+        // Shared, per-run monotonic sequence source for ALL runtime events: the
+        // wrapper's invocation/tool events (below) AND the agent's model-call
+        // events (emitted from `LlmAgent` through the `InvocationContext` seam).
+        // Threading the SAME `AtomicU64` into the invocation context is what keeps
+        // model-call sequence numbers ordered with the lifecycle events.
+        let observer_seq = Arc::new(AtomicU64::new(0));
+        // Clones threaded into the inner stream so each `InvocationContext`
+        // (initial + plugin/cache rebuilds + transfers) can hand the observer and
+        // the shared counter to the agent. `None` when no observer is registered.
+        let ctx_observer = run_observer.clone();
+        let ctx_observer_seq = observer_seq.clone();
+
         let session_id_str = session_id.as_str().to_string();
         let observer_session_id = session_id_str.clone();
 
@@ -777,6 +795,12 @@ impl Runner {
                 invocation_ctx = invocation_ctx.with_cancellation_token(token);
             }
 
+            // Thread the runtime observer + shared sequence so the agent can emit
+            // model-call events monotonic with the wrapper's lifecycle events.
+            if let Some(observer) = ctx_observer.clone() {
+                invocation_ctx = invocation_ctx.with_run_observer(observer, ctx_observer_seq.clone());
+            }
+
             let mut ctx = Arc::new(invocation_ctx);
 
             #[cfg(feature = "plugins")]
@@ -853,6 +877,10 @@ impl Runner {
                         }
                         if let Some(token) = cancellation_token.clone() {
                             refreshed_ctx = refreshed_ctx.with_cancellation_token(token);
+                        }
+                        if let Some(observer) = ctx_observer.clone() {
+                            refreshed_ctx = refreshed_ctx
+                                .with_run_observer(observer, ctx_observer_seq.clone());
                         }
                         ctx = Arc::new(refreshed_ctx);
                     }
@@ -977,6 +1005,10 @@ impl Runner {
                     }
                     if let Some(token) = cancellation_token.clone() {
                         refreshed_ctx = refreshed_ctx.with_cancellation_token(token);
+                    }
+                    if let Some(observer) = ctx_observer.clone() {
+                        refreshed_ctx =
+                            refreshed_ctx.with_run_observer(observer, ctx_observer_seq.clone());
                     }
                     ctx = Arc::new(refreshed_ctx);
                 }
@@ -1266,6 +1298,10 @@ impl Runner {
                 if let Some(token) = cancellation_token.clone() {
                     transfer_ctx = transfer_ctx.with_cancellation_token(token);
                 }
+                if let Some(observer) = ctx_observer.clone() {
+                    transfer_ctx =
+                        transfer_ctx.with_run_observer(observer, ctx_observer_seq.clone());
+                }
 
                 let transfer_ctx = Arc::new(transfer_ctx);
 
@@ -1448,13 +1484,16 @@ impl Runner {
         let observed = stream! {
             use futures::StreamExt;
             let mut inner = std::pin::pin!(s);
-            let mut seq: u64 = 0;
+            // The per-run sequence source, shared with the agent's model-call emit
+            // sites (threaded into the invocation context above) so every runtime
+            // event — lifecycle and model-call alike — is strictly monotonic.
+            let seq: &AtomicU64 = &observer_seq;
             let inv = observer_invocation_id.as_str();
             let sess = observer_session_id.as_str();
             let root = observer_agent_name.as_str();
 
             emit_runtime_event(
-                &observer, &mut seq, RuntimeEventKind::InvocationQueued,
+                &observer, seq, RuntimeEventKind::InvocationQueued,
                 inv, sess, root, std::collections::BTreeMap::new(), None,
             ).await;
 
@@ -1463,7 +1502,7 @@ impl Runner {
             while let Some(item) = inner.next().await {
                 if !started {
                     emit_runtime_event(
-                        &observer, &mut seq, RuntimeEventKind::InvocationStarted,
+                        &observer, seq, RuntimeEventKind::InvocationStarted,
                         inv, sess, root, std::collections::BTreeMap::new(), None,
                     ).await;
                     started = true;
@@ -1481,7 +1520,7 @@ impl Runner {
                             }
                             let pref = payload_hash(&call.args.to_string());
                             emit_runtime_event(
-                                &observer, &mut seq, RuntimeEventKind::ToolCallStarted,
+                                &observer, seq, RuntimeEventKind::ToolCallStarted,
                                 inv, sess, &author, md, Some(pref),
                             ).await;
                         }
@@ -1493,7 +1532,7 @@ impl Runner {
                             }
                             let pref = payload_hash(&result.response.to_string());
                             emit_runtime_event(
-                                &observer, &mut seq, RuntimeEventKind::ToolCallCompleted,
+                                &observer, seq, RuntimeEventKind::ToolCallCompleted,
                                 inv, sess, &author, md, Some(pref),
                             ).await;
                         }
@@ -1508,7 +1547,7 @@ impl Runner {
             // yielded nothing.
             if !started {
                 emit_runtime_event(
-                    &observer, &mut seq, RuntimeEventKind::InvocationStarted,
+                    &observer, seq, RuntimeEventKind::InvocationStarted,
                     inv, sess, root, std::collections::BTreeMap::new(), None,
                 ).await;
             }
@@ -1521,7 +1560,7 @@ impl Runner {
                 RuntimeEventKind::InvocationCompleted
             };
             emit_runtime_event(
-                &observer, &mut seq, kind,
+                &observer, seq, kind,
                 inv, sess, root, std::collections::BTreeMap::new(), None,
             ).await;
         };

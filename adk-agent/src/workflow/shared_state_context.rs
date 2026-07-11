@@ -110,4 +110,12 @@ impl InvocationContext for SharedStateContext {
     fn request_metadata(&self) -> HashMap<String, serde_json::Value> {
         self.inner.request_metadata()
     }
+
+    fn run_observer(&self) -> Option<Arc<dyn adk_core::RunObserver>> {
+        self.inner.run_observer()
+    }
+
+    fn observer_sequence(&self) -> Option<Arc<std::sync::atomic::AtomicU64>> {
+        self.inner.observer_sequence()
+    }
 }

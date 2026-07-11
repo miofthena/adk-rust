@@ -256,6 +256,12 @@ pub struct InvocationContext {
     /// per-session token. When present, tools reach it via
     /// `ToolContext::cancellation_token()` and can abort promptly on interrupt.
     cancellation_token: Option<CancellationToken>,
+    /// Optional runtime lifecycle observer, threaded from the runner so the agent
+    /// can emit model-call events at the provider-call boundary. Paired with
+    /// `observer_sequence` so those events stay monotonic with lifecycle events.
+    run_observer: Option<Arc<dyn adk_core::RunObserver>>,
+    /// Shared, per-run monotonic sequence source (set alongside `run_observer`).
+    observer_sequence: Option<Arc<std::sync::atomic::AtomicU64>>,
 }
 
 impl InvocationContext {
@@ -288,6 +294,8 @@ impl InvocationContext {
             shared_state: None,
             secret_service: None,
             cancellation_token: None,
+            run_observer: None,
+            observer_sequence: None,
         })
     }
 
@@ -345,6 +353,8 @@ impl InvocationContext {
             shared_state: None,
             secret_service: None,
             cancellation_token: None,
+            run_observer: None,
+            observer_sequence: None,
         })
     }
 
@@ -429,6 +439,23 @@ impl InvocationContext {
     /// observe interruption via `ToolContext::cancellation_token()`.
     pub fn with_cancellation_token(mut self, token: CancellationToken) -> Self {
         self.cancellation_token = Some(token);
+        self
+    }
+
+    /// Thread the runtime observer and the shared per-run sequence counter into
+    /// this context.
+    ///
+    /// The runner passes both here so the agent can emit model-call
+    /// [`RuntimeEvent`](adk_core::RuntimeEvent)s at the provider-call boundary,
+    /// drawing their sequence numbers from the same counter as the runner's
+    /// lifecycle wrapper (keeping the whole run's event sequence monotonic).
+    pub fn with_run_observer(
+        mut self,
+        observer: Arc<dyn adk_core::RunObserver>,
+        sequence: Arc<std::sync::atomic::AtomicU64>,
+    ) -> Self {
+        self.run_observer = Some(observer);
+        self.observer_sequence = Some(sequence);
         self
     }
 
@@ -534,5 +561,13 @@ impl InvocationContextTrait for InvocationContext {
 
     fn cancellation_token(&self) -> Option<CancellationToken> {
         self.cancellation_token.clone()
+    }
+
+    fn run_observer(&self) -> Option<Arc<dyn adk_core::RunObserver>> {
+        self.run_observer.clone()
+    }
+
+    fn observer_sequence(&self) -> Option<Arc<std::sync::atomic::AtomicU64>> {
+        self.observer_sequence.clone()
     }
 }

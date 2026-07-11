@@ -106,6 +106,14 @@ impl InvocationContext for UserContentOverrideContext {
     fn ended(&self) -> bool {
         self.parent.ended()
     }
+
+    fn run_observer(&self) -> Option<Arc<dyn adk_core::RunObserver>> {
+        self.parent.run_observer()
+    }
+
+    fn observer_sequence(&self) -> Option<Arc<std::sync::atomic::AtomicU64>> {
+        self.parent.observer_sequence()
+    }
 }
 
 #[allow(dead_code)]

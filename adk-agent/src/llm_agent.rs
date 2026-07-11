@@ -3,12 +3,13 @@ use adk_core::{
     BeforeAgentCallback, BeforeModelCallback, BeforeModelResult, BeforeToolCallback,
     CallbackContext, Content, Event, EventActions, FunctionResponseData, GlobalInstructionProvider,
     InstructionProvider, InvocationContext, Llm, LlmRequest, LlmResponse, MemoryEntry,
-    OnToolErrorCallback, Part, ReadonlyContext, Result, RetryBudget, Tool, ToolCallbackContext,
-    ToolConfirmationDecision, ToolConfirmationPolicy, ToolConfirmationRequest, ToolContext,
-    ToolExecutionStrategy, ToolOutcome, Toolset,
+    OnToolErrorCallback, Part, ReadonlyContext, Result, RetryBudget, RunObserver, RuntimeEvent,
+    RuntimeEventKind, Tool, ToolCallbackContext, ToolConfirmationDecision, ToolConfirmationPolicy,
+    ToolConfirmationRequest, ToolContext, ToolExecutionStrategy, ToolOutcome, Toolset,
 };
 use async_stream::stream;
 use async_trait::async_trait;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tracing::Instrument;
 
@@ -170,6 +171,58 @@ fn attach_model_request(
             }
         }
     }
+}
+
+/// Emit one model-call [`RuntimeEvent`] to the runtime observer threaded through
+/// the [`InvocationContext`], drawing the next number from the shared per-run
+/// sequence counter so it stays monotonic with the runner's lifecycle events.
+///
+/// A no-op when no observer is registered (the common path — the caller only
+/// invokes this after checking the observer is `Some`). Observer errors are
+/// logged and swallowed — they **never** fail or block the model call, matching
+/// the [`RunObserver`] contract. The timestamp is stamped here (the crate has no
+/// injected clock; mirrors [`Event`]'s use of `Utc::now`).
+async fn emit_model_call_event(
+    observer: &Arc<dyn RunObserver>,
+    sequence: &Arc<AtomicU64>,
+    kind: RuntimeEventKind,
+    invocation_id: &str,
+    session_id: &str,
+    agent_name: &str,
+    metadata: std::collections::BTreeMap<String, String>,
+) {
+    let n = sequence.fetch_add(1, Ordering::SeqCst);
+    let mut event =
+        RuntimeEvent::new(kind, invocation_id, session_id, agent_name, n, chrono::Utc::now());
+    event.metadata = metadata;
+    if let Err(e) = observer.on_event(event).await {
+        tracing::warn!(
+            error = %e,
+            invocation.id = %invocation_id,
+            "run observer on_event failed (model call)"
+        );
+    }
+}
+
+/// Build the bounded, PII-free metadata for a `ModelCallCompleted` event: the
+/// (non-secret) model id, the finish reason as a string, and the token counts —
+/// never the prompt or response text.
+fn model_completed_metadata(
+    model_name: &str,
+    usage: Option<&adk_core::UsageMetadata>,
+    finish_reason: Option<adk_core::FinishReason>,
+) -> std::collections::BTreeMap<String, String> {
+    let mut md = std::collections::BTreeMap::new();
+    md.insert("model".to_string(), model_name.to_string());
+    if let Some(reason) = finish_reason {
+        md.insert("finish_reason".to_string(), format!("{reason:?}"));
+    }
+    if let Some(u) = usage {
+        md.insert("prompt_tokens".to_string(), u.prompt_token_count.to_string());
+        md.insert("completion_tokens".to_string(), u.candidates_token_count.to_string());
+        md.insert("total_tokens".to_string(), u.total_token_count.to_string());
+    }
+    md
 }
 
 /// An LLM-powered agent that orchestrates tool calls and sub-agent delegation.
@@ -1357,6 +1410,13 @@ impl Agent for LlmAgent {
         let enhanced_plugin_manager = self.enhanced_plugin_manager.clone();
 
         let s = stream! {
+            // Resolve the runtime observer + shared per-run sequence once. Both are
+            // `None` on the common no-observer path, so the model-call emit sites
+            // below are zero-cost no-ops. When present, the sequence is shared with
+            // the runner's lifecycle wrapper, keeping all runtime events monotonic.
+            let model_observer = ctx.run_observer();
+            let model_observer_seq = ctx.observer_sequence();
+
             // ===== BEFORE AGENT CALLBACKS =====
             // Execute before the agent starts running
             // If any returns content, skip agent execution
@@ -1876,6 +1936,28 @@ impl Agent for LlmAgent {
                         == adk_core::ModelRequestPersistence::Metadata)
                         .then(|| RequestDigest::from_request(&request, request_json.len()));
 
+                    // ===== MODEL CALL OBSERVER: STARTED =====
+                    // Emit immediately before the provider call begins. This is the
+                    // real-call branch only — the cached / short-circuit path above
+                    // is not a provider call, so it emits no model-call events. The
+                    // completion is emitted exactly once (terminal chunk / end of the
+                    // response stream) via this flag.
+                    let mut model_call_completed_emitted = false;
+                    if let (Some(obs), Some(seq)) = (&model_observer, &model_observer_seq) {
+                        let mut md = std::collections::BTreeMap::new();
+                        md.insert("model".to_string(), model.name().to_string());
+                        emit_model_call_event(
+                            obs,
+                            seq,
+                            RuntimeEventKind::ModelCallStarted,
+                            &invocation_id,
+                            ctx.session_id(),
+                            &agent_name,
+                            md,
+                        )
+                        .await;
+                    }
+
                     // Always use streaming internally for LLM calls
                     let mut response_stream = model.generate_content(request, true).await?;
 
@@ -1976,6 +2058,32 @@ impl Agent for LlmAgent {
                             partial_event.llm_response.provider_metadata = chunk.provider_metadata.clone();
                             partial_event.llm_response.interaction_id = chunk.interaction_id.clone();
 
+                            // ===== MODEL CALL OBSERVER: COMPLETED (streaming) =====
+                            // The terminal chunk (`partial == false`) marks the model
+                            // call complete: emit BEFORE yielding the terminal event so
+                            // completion precedes any tool events the runner derives
+                            // from it. The flag guarantees exactly one completion.
+                            if is_terminal && !model_call_completed_emitted {
+                                if let (Some(obs), Some(seq)) = (&model_observer, &model_observer_seq) {
+                                    let md = model_completed_metadata(
+                                        model.name(),
+                                        chunk.usage_metadata.as_ref(),
+                                        chunk.finish_reason,
+                                    );
+                                    emit_model_call_event(
+                                        obs,
+                                        seq,
+                                        RuntimeEventKind::ModelCallCompleted,
+                                        &invocation_id,
+                                        ctx.session_id(),
+                                        &agent_name,
+                                        md,
+                                    )
+                                    .await;
+                                }
+                                model_call_completed_emitted = true;
+                            }
+
                             yield Ok(partial_event);
                         }
 
@@ -2039,6 +2147,31 @@ impl Agent for LlmAgent {
                             final_event.long_running_tool_ids = collect_long_running_ids(content);
                         }
 
+                        // ===== MODEL CALL OBSERVER: COMPLETED (non-streaming) =====
+                        // In `None` streaming mode the single final event is built
+                        // here after the response stream is fully drained; emit the
+                        // completion (from the last chunk's usage/finish) before it.
+                        if !model_call_completed_emitted {
+                            if let (Some(obs), Some(seq)) = (&model_observer, &model_observer_seq) {
+                                let md = model_completed_metadata(
+                                    model.name(),
+                                    last_chunk.as_ref().and_then(|c| c.usage_metadata.as_ref()),
+                                    last_chunk.as_ref().and_then(|c| c.finish_reason),
+                                );
+                                emit_model_call_event(
+                                    obs,
+                                    seq,
+                                    RuntimeEventKind::ModelCallCompleted,
+                                    &invocation_id,
+                                    ctx.session_id(),
+                                    &agent_name,
+                                    md,
+                                )
+                                .await;
+                            }
+                            model_call_completed_emitted = true;
+                        }
+
                         yield Ok(final_event);
                     }
 
@@ -2050,6 +2183,30 @@ impl Agent for LlmAgent {
                             ctx.run_config().trace_payload_max_bytes,
                         );
                         llm_span.record("gcp.vertex.agent.llm_response", &response_json);
+                    }
+
+                    // ===== MODEL CALL OBSERVER: COMPLETED (fallback) =====
+                    // Defensive: an SSE run whose provider never sent a terminal
+                    // (`partial == false`) chunk still gets exactly one completion,
+                    // from the last observed chunk's usage/finish.
+                    if !model_call_completed_emitted
+                        && let (Some(obs), Some(seq)) = (&model_observer, &model_observer_seq)
+                    {
+                        let md = model_completed_metadata(
+                            model.name(),
+                            last_chunk.as_ref().and_then(|c| c.usage_metadata.as_ref()),
+                            last_chunk.as_ref().and_then(|c| c.finish_reason),
+                        );
+                        emit_model_call_event(
+                            obs,
+                            seq,
+                            RuntimeEventKind::ModelCallCompleted,
+                            &invocation_id,
+                            ctx.session_id(),
+                            &agent_name,
+                            md,
+                        )
+                        .await;
                     }
                 }
 

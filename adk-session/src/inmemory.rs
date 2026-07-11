@@ -173,11 +173,16 @@ impl SessionService for InMemorySessionService {
 
         let merged_state = Self::merge_states(&app_state, &user_state, &data.state);
 
-        let mut events = data.events.clone();
-        if let Some(num) = req.num_recent_events {
-            let start = events.len().saturating_sub(num);
-            events = events[start..].to_vec();
-        }
+        // Clone only the recent-events tail, not the whole history then truncate (FClaw memory fix —
+        // the previous `data.events.clone()` duplicated every event of a long session before
+        // discarding all but the last `num_recent_events`).
+        let mut events = match req.num_recent_events {
+            Some(num) => {
+                let start = data.events.len().saturating_sub(num);
+                data.events[start..].to_vec()
+            }
+            None => data.events.clone(),
+        };
         if let Some(after) = req.after {
             events.retain(|e| e.timestamp >= after);
         }

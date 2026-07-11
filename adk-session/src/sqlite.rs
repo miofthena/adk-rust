@@ -247,10 +247,27 @@ impl SessionService for SqliteSessionService {
             .map_err(|e| adk_core::AdkError::session(format!("parse date failed: {}", e)))?
             .with_timezone(&Utc);
 
-        let events: Vec<Event> = sqlx::query("SELECT * FROM events WHERE app_name = ? AND user_id = ? AND session_id = ? ORDER BY timestamp")
+        // Push the recent-events window into SQL (FClaw memory fix — see docs/ADK_FORK.md). The
+        // previous `SELECT * ... ORDER BY timestamp` + `fetch_all` loaded and deserialized the
+        // ENTIRE session history every turn before truncating to the last `num_recent_events`, so a
+        // long-lived session's peak grew with its whole archive. We instead fetch only the tail via
+        // `ORDER BY timestamp DESC LIMIT ?` and reverse back to chronological order. (`after` stays a
+        // post-fetch, timezone-correct Rust filter — an SQL string comparison would be sensitive to
+        // the stored timestamp's exact rfc3339 spelling.)
+        let mut sql = String::from(
+            "SELECT * FROM events WHERE app_name = ? AND user_id = ? AND session_id = ? ORDER BY timestamp DESC",
+        );
+        if req.num_recent_events.is_some() {
+            sql.push_str(" LIMIT ?");
+        }
+        let mut query = sqlx::query(&sql)
             .bind(&req.app_name)
             .bind(&req.user_id)
-            .bind(&req.session_id)
+            .bind(&req.session_id);
+        if let Some(num) = req.num_recent_events {
+            query = query.bind(num as i64);
+        }
+        let mut events: Vec<Event> = query
             .fetch_all(&self.pool)
             .await
             .map_err(|e| adk_core::AdkError::session(format!("query failed: {}", e)))?
@@ -276,12 +293,9 @@ impl SessionService for SqliteSessionService {
             })
             .collect();
 
-        let mut events = events;
+        // Fetched newest-first for the LIMIT; restore chronological (oldest-first) order.
+        events.reverse();
 
-        if let Some(num) = req.num_recent_events {
-            let start = events.len().saturating_sub(num);
-            events = events[start..].to_vec();
-        }
         if let Some(after) = req.after {
             events.retain(|e| e.timestamp >= after);
         }

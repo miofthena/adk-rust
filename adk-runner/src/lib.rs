@@ -50,6 +50,7 @@ pub mod compaction;
 mod context;
 pub mod intra_compaction;
 mod launcher;
+pub mod observer;
 mod runner;
 #[cfg(feature = "sandbox-runner")]
 pub mod sandbox_runner;
@@ -61,6 +62,7 @@ pub use callbacks::{
 };
 pub use context::{InvocationContext, MutableSession};
 pub use launcher::Launcher;
+pub use observer::{RunObserver, RuntimeEvent, RuntimeEventKind};
 pub use runner::{RunHandle, Runner, RunnerConfig, SessionConcurrencyPolicy};
 
 // Re-export RequestContext for convenience

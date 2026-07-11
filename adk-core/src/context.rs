@@ -653,6 +653,37 @@ pub enum StreamingMode {
     Bidi,
 }
 
+/// Policy controlling how much of the model request is attached to (and thus
+/// persisted on) the terminal [`Event`] for UI/replay/debugging.
+///
+/// The full request can be large (it carries the entire prompt, tool schemas,
+/// and any inline image bytes), so persisting it on every turn is costly.
+/// This policy lets a caller trade fidelity for size without losing the useful
+/// signal. It is **additive**: the default is [`Full`](Self::Full), preserving
+/// the historical behavior for callers that do not set it.
+///
+/// # Example
+///
+/// ```rust
+/// use adk_core::ModelRequestPersistence;
+///
+/// // Default preserves today's behavior (whole request attached).
+/// assert_eq!(ModelRequestPersistence::default(), ModelRequestPersistence::Full);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModelRequestPersistence {
+    /// Attach nothing — no request data is stored on the event.
+    None,
+    /// Attach only a compact, PII-free digest (model id, routing/class hint,
+    /// request byte size, content count, tool-schema hash/count, a hash of the
+    /// context, token usage, and finish reason) — never the prompt text or
+    /// inline image bytes.
+    Metadata,
+    /// Attach the whole serialized request (the historical behavior).
+    #[default]
+    Full,
+}
+
 /// Controls what parts of prior conversation history is received by llmagent
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IncludeContents {
@@ -782,6 +813,13 @@ pub struct RunConfig {
     /// Prevents infinite transfer loops when agents transfer back and forth.
     /// Defaults to 10 when `None`.
     pub max_transfer_depth: Option<u32>,
+    /// How much of the model request to attach to the persisted terminal event.
+    ///
+    /// Defaults to [`ModelRequestPersistence::Full`] (the historical behavior:
+    /// the whole serialized request is stored). Set to
+    /// [`ModelRequestPersistence::Metadata`] to store only a compact PII-free
+    /// digest, or [`ModelRequestPersistence::None`] to store nothing.
+    pub model_request_persistence: ModelRequestPersistence,
 }
 
 impl Default for RunConfig {
@@ -798,6 +836,7 @@ impl Default for RunConfig {
             record_payloads: false,
             trace_payload_max_bytes: 2048,
             max_transfer_depth: None,
+            model_request_persistence: ModelRequestPersistence::Full,
         }
     }
 }
@@ -914,6 +953,14 @@ impl RunConfigBuilder {
     /// Prevents infinite transfer loops. Defaults to 10 when `None`.
     pub fn max_transfer_depth(mut self, depth: u32) -> Self {
         self.config.max_transfer_depth = Some(depth);
+        self
+    }
+
+    /// Sets how much of the model request is attached to the persisted terminal event.
+    ///
+    /// Defaults to [`ModelRequestPersistence::Full`].
+    pub fn model_request_persistence(mut self, policy: ModelRequestPersistence) -> Self {
+        self.config.model_request_persistence = policy;
         self
     }
 

@@ -1,5 +1,6 @@
 use crate::InvocationContext;
 use crate::cache::CacheManager;
+use crate::observer::{RunObserver, RuntimeEvent, RuntimeEventKind};
 #[cfg(feature = "artifacts")]
 use adk_artifact::ArtifactService;
 use adk_core::{
@@ -18,6 +19,43 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+
+/// A short, non-reversible hash of a payload string, rendered as 16 hex chars.
+///
+/// Used to build a [`RuntimeEvent::payload_ref`] fingerprint of tool
+/// arguments/results without storing the (possibly sensitive) payload itself.
+fn payload_hash(s: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// Emit one [`RuntimeEvent`] to the observer, bumping the per-run sequence.
+///
+/// Errors are logged and swallowed — observer failures never affect the run.
+/// The timestamp is stamped here (the crate has no injectable clock seam;
+/// this mirrors [`adk_core::Event`]'s use of `Utc::now`).
+#[allow(clippy::too_many_arguments)]
+async fn emit_runtime_event(
+    observer: &Arc<dyn RunObserver>,
+    seq: &mut u64,
+    kind: RuntimeEventKind,
+    invocation_id: &str,
+    session_id: &str,
+    agent_name: &str,
+    metadata: std::collections::BTreeMap<String, String>,
+    payload_ref: Option<String>,
+) {
+    let mut event =
+        RuntimeEvent::new(kind, invocation_id, session_id, agent_name, *seq, chrono::Utc::now());
+    *seq += 1;
+    event.metadata = metadata;
+    event.payload_ref = payload_ref;
+    if let Err(e) = observer.on_event(event).await {
+        tracing::warn!(error = %e, invocation.id = %invocation_id, "run observer on_event failed");
+    }
+}
 
 /// A handle to a started agent run, returned by [`Runner::start`].
 ///
@@ -241,6 +279,12 @@ pub struct RunnerConfig {
     /// This field is only available when the `context-compaction` feature is enabled.
     #[cfg(feature = "context-compaction")]
     pub context_compaction: Option<crate::compaction::CompactionConfig>,
+    /// Optional runtime lifecycle observer.
+    ///
+    /// When set, the runner emits [`RuntimeEvent`]s at reachable lifecycle points
+    /// (invocation queued/started/completed/failed/cancelled + tool call
+    /// started/completed). Defaults to `None` (zero overhead).
+    pub run_observer: Option<Arc<dyn RunObserver>>,
 }
 
 /// Agent execution runtime.
@@ -278,6 +322,8 @@ pub struct Runner {
     session_concurrency: SessionConcurrencyPolicy,
     /// Per-session serialization gates (used only under `Serialize`).
     session_gates: Arc<std::sync::Mutex<SessionGates>>,
+    /// Optional runtime lifecycle observer (zero overhead when `None`).
+    run_observer: Option<Arc<dyn RunObserver>>,
 }
 
 impl Runner {
@@ -359,6 +405,7 @@ impl Runner {
             registry: Arc::new(std::sync::Mutex::new(Registry::default())),
             session_concurrency,
             session_gates: Arc::new(std::sync::Mutex::new(SessionGates::new(gate_capacity))),
+            run_observer: config.run_observer,
         })
     }
 
@@ -505,12 +552,22 @@ impl Runner {
         let session_concurrency = self.session_concurrency;
         let session_gates = self.session_gates.clone();
 
+        // Runtime observer captures (used only by the wrapper stream below; when
+        // no observer is set, the wrapper is skipped entirely for zero overhead).
+        let run_observer = self.run_observer.clone();
+        let observer_agent_name = self.root_agent.name().to_string();
+        let observer_invocation_id = invocation_id.clone();
+
         let session_id_str = session_id.as_str().to_string();
+        let observer_session_id = session_id_str.clone();
 
         // The invocation-scoped token unifies global + per-invocation cancellation
         // (it is a child of the global token when one is configured), so it IS the
         // effective token — no combined token, no watcher tasks.
         let effective_token = Some(session_token.clone());
+        // A clone of the effective token so the observer wrapper can distinguish a
+        // cancelled run (stream ended without an error, token fired) from a clean one.
+        let observer_token = session_token.clone();
 
         let s = stream! {
             // ===== REGISTRY REGISTRATION + RAII CLEANUP =====
@@ -1375,7 +1432,101 @@ impl Runner {
             }
         };
 
-        Box::pin(s)
+        // ===== RUNTIME OBSERVER WRAPPER =====
+        // When no observer is registered, return the inner stream unchanged — the
+        // wrapper is never built, so there is exactly zero overhead (the default).
+        let Some(observer) = run_observer else {
+            return Box::pin(s);
+        };
+
+        // Otherwise wrap the inner stream, forwarding every event 1:1 while emitting
+        // bounded lifecycle events. Emitting from the wrapper (rather than threading
+        // the observer through the delicate inner generator) catches ALL terminal
+        // paths uniformly: any yielded `Err` ⇒ failed; a token-cancelled end with no
+        // error ⇒ cancelled; otherwise ⇒ completed. Tool start/complete are derived
+        // by inspecting each non-partial event's function calls / responses.
+        let observed = stream! {
+            use futures::StreamExt;
+            let mut inner = std::pin::pin!(s);
+            let mut seq: u64 = 0;
+            let inv = observer_invocation_id.as_str();
+            let sess = observer_session_id.as_str();
+            let root = observer_agent_name.as_str();
+
+            emit_runtime_event(
+                &observer, &mut seq, RuntimeEventKind::InvocationQueued,
+                inv, sess, root, std::collections::BTreeMap::new(), None,
+            ).await;
+
+            let mut started = false;
+            let mut errored = false;
+            while let Some(item) = inner.next().await {
+                if !started {
+                    emit_runtime_event(
+                        &observer, &mut seq, RuntimeEventKind::InvocationStarted,
+                        inv, sess, root, std::collections::BTreeMap::new(), None,
+                    ).await;
+                    started = true;
+                }
+                match &item {
+                    // Inspect the persisted (non-partial) events only: partial streaming
+                    // chunks would double-count a tool call across its deltas.
+                    Ok(event) if !event.llm_response.partial => {
+                        let author = event.author.clone();
+                        for call in event.tool_calls() {
+                            let mut md = std::collections::BTreeMap::new();
+                            md.insert("tool".to_string(), call.name.to_string());
+                            if let Some(id) = call.call_id {
+                                md.insert("call_id".to_string(), id.to_string());
+                            }
+                            let pref = payload_hash(&call.args.to_string());
+                            emit_runtime_event(
+                                &observer, &mut seq, RuntimeEventKind::ToolCallStarted,
+                                inv, sess, &author, md, Some(pref),
+                            ).await;
+                        }
+                        for result in event.tool_results() {
+                            let mut md = std::collections::BTreeMap::new();
+                            md.insert("tool".to_string(), result.name.to_string());
+                            if let Some(id) = result.call_id {
+                                md.insert("call_id".to_string(), id.to_string());
+                            }
+                            let pref = payload_hash(&result.response.to_string());
+                            emit_runtime_event(
+                                &observer, &mut seq, RuntimeEventKind::ToolCallCompleted,
+                                inv, sess, &author, md, Some(pref),
+                            ).await;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(_) => errored = true,
+                }
+                yield item;
+            }
+
+            // Guarantee a `started` precedes the terminal event even for a run that
+            // yielded nothing.
+            if !started {
+                emit_runtime_event(
+                    &observer, &mut seq, RuntimeEventKind::InvocationStarted,
+                    inv, sess, root, std::collections::BTreeMap::new(), None,
+                ).await;
+            }
+
+            let kind = if errored {
+                RuntimeEventKind::InvocationFailed
+            } else if observer_token.is_cancelled() {
+                RuntimeEventKind::InvocationCancelled
+            } else {
+                RuntimeEventKind::InvocationCompleted
+            };
+            emit_runtime_event(
+                &observer, &mut seq, kind,
+                inv, sess, root, std::collections::BTreeMap::new(), None,
+            ).await;
+        };
+
+        Box::pin(observed)
     }
 
     /// Convenience method that accepts string arguments.

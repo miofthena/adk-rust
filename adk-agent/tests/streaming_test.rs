@@ -241,16 +241,38 @@ async fn test_streaming_chunks() {
     let ctx = Arc::new(BetterMockContext::new());
     let mut stream = agent.run(ctx).await.unwrap();
 
-    let mut received_chunks = Vec::new();
+    // Partial chunks stream their individual deltas to the client; the terminal
+    // (`partial == false`) event — the one the Runner persists — now carries the
+    // FULL accumulated content, not just the last provider chunk. (Change 1.)
+    let mut partial_deltas = Vec::new();
+    let mut terminal_text: Option<String> = None;
 
     while let Some(result) = stream.next().await {
         let event = result.unwrap();
-        if let Some(content) = event.llm_response.content
-            && let Some(Part::Text { text }) = content.parts.first()
-        {
-            received_chunks.push(text.clone());
+        let text: String = event
+            .llm_response
+            .content
+            .as_ref()
+            .map(|c| {
+                c.parts
+                    .iter()
+                    .filter_map(|p| match p {
+                        Part::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if event.llm_response.partial {
+            partial_deltas.push(text);
+        } else {
+            terminal_text = Some(text);
         }
     }
 
-    assert_eq!(received_chunks, vec!["Hello", " ", "World", "!"]);
+    // "Hello", " ", "World" arrive as partial deltas; "!" is the terminal chunk.
+    assert_eq!(partial_deltas, vec!["Hello", " ", "World"]);
+    // The terminal (persisted) event holds the complete reply, not the last chunk.
+    assert_eq!(terminal_text.as_deref(), Some("Hello World!"));
 }

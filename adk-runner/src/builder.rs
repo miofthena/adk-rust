@@ -26,6 +26,7 @@ use adk_plugin::PluginManager;
 use adk_session::SessionService;
 use tokio_util::sync::CancellationToken;
 
+use crate::observer::RunObserver;
 use crate::runner::{Runner, RunnerConfig, SessionConcurrencyPolicy};
 
 // ---------------------------------------------------------------------------
@@ -73,6 +74,7 @@ pub struct RunnerConfigBuilder<A, G, S> {
     intra_compaction_summarizer: Option<Arc<dyn adk_core::BaseEventsSummarizer>>,
     #[cfg(feature = "context-compaction")]
     context_compaction: Option<crate::compaction::CompactionConfig>,
+    run_observer: Option<Arc<dyn RunObserver>>,
     _marker: PhantomData<(A, G, S)>,
 }
 
@@ -99,6 +101,7 @@ impl RunnerConfigBuilder<NoAppName, NoAgent, NoSessionService> {
             intra_compaction_summarizer: None,
             #[cfg(feature = "context-compaction")]
             context_compaction: None,
+            run_observer: None,
             _marker: PhantomData,
         }
     }
@@ -137,6 +140,7 @@ impl<A, G, S> RunnerConfigBuilder<A, G, S> {
             intra_compaction_summarizer: self.intra_compaction_summarizer,
             #[cfg(feature = "context-compaction")]
             context_compaction: self.context_compaction,
+            run_observer: self.run_observer,
             _marker: PhantomData,
         }
     }
@@ -163,6 +167,7 @@ impl<A, G, S> RunnerConfigBuilder<A, G, S> {
             intra_compaction_summarizer: self.intra_compaction_summarizer,
             #[cfg(feature = "context-compaction")]
             context_compaction: self.context_compaction,
+            run_observer: self.run_observer,
             _marker: PhantomData,
         }
     }
@@ -192,6 +197,7 @@ impl<A, G, S> RunnerConfigBuilder<A, G, S> {
             intra_compaction_summarizer: self.intra_compaction_summarizer,
             #[cfg(feature = "context-compaction")]
             context_compaction: self.context_compaction,
+            run_observer: self.run_observer,
             _marker: PhantomData,
         }
     }
@@ -291,6 +297,14 @@ impl<A, G, S> RunnerConfigBuilder<A, G, S> {
         self.context_compaction = Some(config);
         self
     }
+
+    /// Register a [`RunObserver`] to receive runtime lifecycle events (optional).
+    ///
+    /// Defaults to `None`, in which case the runner does no observer work.
+    pub fn run_observer(mut self, observer: Arc<dyn RunObserver>) -> Self {
+        self.run_observer = Some(observer);
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -324,6 +338,7 @@ impl RunnerConfigBuilder<HasAppName, HasAgent, HasSessionService> {
             intra_compaction_summarizer: self.intra_compaction_summarizer,
             #[cfg(feature = "context-compaction")]
             context_compaction: self.context_compaction,
+            run_observer: self.run_observer,
         }
     }
 
@@ -358,6 +373,7 @@ impl RunnerConfigBuilder<HasAppName, HasAgent, HasSessionService> {
             intra_compaction_summarizer: self.intra_compaction_summarizer,
             #[cfg(feature = "context-compaction")]
             context_compaction: self.context_compaction,
+            run_observer: self.run_observer,
         };
         Runner::new(config)
     }

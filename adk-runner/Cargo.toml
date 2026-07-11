@@ -28,6 +28,7 @@ uuid.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
+chrono = { workspace = true }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 [features]

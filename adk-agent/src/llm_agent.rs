@@ -54,6 +54,124 @@ fn trace_json_payload<T: serde::Serialize>(
     format!("{}...[truncated {} bytes]", &json[..end], json.len() - end)
 }
 
+/// The provider-metadata key under which the full serialized model request is
+/// mirrored (alongside [`Event::llm_request`]) when the persistence policy is
+/// [`ModelRequestPersistence::Full`].
+const LLM_REQUEST_META_KEY: &str = "gcp.vertex.agent.llm_request";
+
+/// A short, stable, non-reversible hash of a string, rendered as 16 hex chars.
+///
+/// Used to fingerprint the prompt/context and tool set in a request digest
+/// without storing the (potentially sensitive, potentially huge) text itself.
+fn short_hash(s: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// The request-derived half of a `Metadata`-policy digest: sizes, counts,
+/// hashes, and the (non-secret) model id / routing hint — never the prompt text
+/// or inline image bytes.
+///
+/// Computed from the [`LlmRequest`] *before* it is moved into the provider call,
+/// then combined with the terminal chunk's token usage and finish reason via
+/// [`finish`](Self::finish). This avoids cloning the (potentially huge) request
+/// just to fingerprint it.
+struct RequestDigest {
+    model: String,
+    request_bytes: usize,
+    contents_count: usize,
+    tools_count: usize,
+    tools_digest: String,
+    context_digest: String,
+    class: Option<String>,
+}
+
+impl RequestDigest {
+    /// Fingerprint the request (no prompt text / image bytes retained).
+    fn from_request(request: &LlmRequest, request_bytes: usize) -> Self {
+        // Sorted tool names → a stable hash of the tool surface (schemas not stored).
+        let mut tool_names: Vec<&str> = request.tools.keys().map(String::as_str).collect();
+        tool_names.sort_unstable();
+        // Optional routing/class hint if the provider extensions carry one (non-secret).
+        let class = request.config.as_ref().and_then(|c| {
+            ["class", "route", "model_class", "call_class"]
+                .iter()
+                .find_map(|k| c.extensions.get(*k).and_then(|v| v.as_str()))
+                .map(str::to_string)
+        });
+        Self {
+            model: request.model.clone(),
+            request_bytes,
+            contents_count: request.contents.len(),
+            tools_count: request.tools.len(),
+            tools_digest: short_hash(&tool_names.join(",")),
+            context_digest: short_hash(
+                &serde_json::to_string(&request.contents).unwrap_or_default(),
+            ),
+            class,
+        }
+    }
+
+    /// Serialize the full digest, combining request fingerprints with the
+    /// terminal chunk's token usage and finish reason.
+    fn finish(
+        &self,
+        usage: Option<&adk_core::UsageMetadata>,
+        finish_reason: Option<adk_core::FinishReason>,
+    ) -> String {
+        let digest = serde_json::json!({
+            "digest": true,
+            "model": self.model,
+            "class": self.class,
+            "request_bytes": self.request_bytes,
+            "contents_count": self.contents_count,
+            "tools_count": self.tools_count,
+            "tools_digest": self.tools_digest,
+            "context_digest": self.context_digest,
+            "usage": usage,
+            "finish_reason": finish_reason,
+        });
+        serde_json::to_string(&digest).unwrap_or_default()
+    }
+}
+
+/// Attach the model request to a persisted event according to the configured
+/// [`ModelRequestPersistence`] policy.
+///
+/// - `Full` mirrors the historical behavior: the whole serialized request is
+///   stored on both [`Event::llm_request`] and the provider-metadata key.
+/// - `Metadata` stores only a compact digest on [`Event::llm_request`] (no
+///   prompt/image bytes, and not duplicated into provider metadata). The
+///   `digest` is precomputed from the request before it is moved into the
+///   provider call.
+/// - `None` stores nothing.
+fn attach_model_request(
+    event: &mut Event,
+    policy: adk_core::ModelRequestPersistence,
+    request_json: &str,
+    digest: Option<&RequestDigest>,
+    usage: Option<&adk_core::UsageMetadata>,
+    finish_reason: Option<adk_core::FinishReason>,
+) {
+    use adk_core::ModelRequestPersistence as P;
+    match policy {
+        P::None => {}
+        P::Full => {
+            event.llm_request = Some(request_json.to_string());
+            event
+                .provider_metadata
+                .insert(LLM_REQUEST_META_KEY.to_string(), request_json.to_string());
+        }
+        P::Metadata => {
+            if let Some(digest) = digest {
+                event.llm_request = Some(digest.finish(usage, finish_reason));
+            }
+        }
+    }
+}
+
 /// An LLM-powered agent that orchestrates tool calls and sub-agent delegation.
 ///
 /// `LlmAgent` is the primary agent type in ADK. It sends requests to an LLM,
@@ -1696,8 +1814,19 @@ impl Agent for LlmAgent {
                     if cached_response.interaction_id.is_some() {
                         last_interaction_id = cached_response.interaction_id.clone();
                     }
-                    cached_event.llm_request = Some(serde_json::to_string(&request).unwrap_or_default());
-                    cached_event.provider_metadata.insert("gcp.vertex.agent.llm_request".to_string(), serde_json::to_string(&request).unwrap_or_default());
+                    let cached_persistence = ctx.run_config().model_request_persistence;
+                    let cached_request_json = serde_json::to_string(&request).unwrap_or_default();
+                    let cached_digest = (cached_persistence
+                        == adk_core::ModelRequestPersistence::Metadata)
+                        .then(|| RequestDigest::from_request(&request, cached_request_json.len()));
+                    attach_model_request(
+                        &mut cached_event,
+                        cached_persistence,
+                        &cached_request_json,
+                        cached_digest.as_ref(),
+                        cached_response.usage_metadata.as_ref(),
+                        cached_response.finish_reason,
+                    );
                     cached_event.provider_metadata.insert("gcp.vertex.agent.llm_response".to_string(), serde_json::to_string(&cached_response).unwrap_or_default());
 
                     // Populate long_running_tool_ids for function calls from long-running tools
@@ -1737,6 +1866,15 @@ impl Agent for LlmAgent {
                     let streaming_mode = ctx.run_config().streaming_mode;
                     let should_stream_to_client = matches!(streaming_mode, StreamingMode::SSE | StreamingMode::Bidi)
                         && output_guardrails.is_empty();
+
+                    // Resolve the request-persistence policy and (for `Metadata`) fingerprint the
+                    // request BEFORE it is moved into the provider call, so the terminal event can
+                    // carry a compact digest without cloning the whole request. `request_json`
+                    // stays alive for the `Full` policy.
+                    let req_persistence = ctx.run_config().model_request_persistence;
+                    let request_digest = (req_persistence
+                        == adk_core::ModelRequestPersistence::Metadata)
+                        .then(|| RequestDigest::from_request(&request, request_json.len()));
 
                     // Always use streaming internally for LLM calls
                     let mut response_stream = model.generate_content(request, true).await?;
@@ -1790,31 +1928,53 @@ impl Agent for LlmAgent {
 
                         // For SSE/Bidi mode: yield each chunk immediately with stable event ID
                         if should_stream_to_client {
+                            // The TERMINAL chunk (`partial == false`) is the one the Runner
+                            // persists — it is the turn's event-of-record. A partial chunk is an
+                            // ephemeral delta streamed to the client and never persisted.
+                            let is_terminal = !chunk.partial;
                             let mut partial_event = Event::with_id(&llm_event_id, &invocation_id);
                             partial_event.author = agent_name.clone();
-                            // Attach the (potentially large) full serialized request ONLY to the
-                            // TERMINAL chunk (`partial == false`) — it is the event kept as the turn's
-                            // request-of-record. Cloning it into every intermediate chunk, twice
-                            // (`llm_request` + `provider_metadata`), multiplied peak memory by
-                            // request_size × chunk_count — catastrophic for inline-image requests.
-                            // FClaw memory fix — see docs/ADK_FORK.md.
-                            if !chunk.partial {
-                                partial_event.llm_request = Some(request_json.clone());
-                                partial_event.provider_metadata.insert("gcp.vertex.agent.llm_request".to_string(), request_json.clone());
+                            // Attach the (potentially large) serialized request ONLY to the
+                            // TERMINAL chunk — cloning it into every intermediate chunk multiplied
+                            // peak memory by request_size × chunk_count. The persistence policy
+                            // (`ModelRequestPersistence`, default `Full`) decides whether that is the
+                            // whole request, a compact digest, or nothing. FClaw memory fix — see
+                            // docs/ADK_FORK.md.
+                            if is_terminal {
+                                attach_model_request(
+                                    &mut partial_event,
+                                    req_persistence,
+                                    &request_json,
+                                    request_digest.as_ref(),
+                                    chunk.usage_metadata.as_ref(),
+                                    chunk.finish_reason,
+                                );
                             }
                             partial_event.provider_metadata.insert("gcp.vertex.agent.llm_response".to_string(), serde_json::to_string(&chunk).unwrap_or_default());
                             partial_event.llm_response.partial = chunk.partial;
                             partial_event.llm_response.turn_complete = chunk.turn_complete;
                             partial_event.llm_response.finish_reason = chunk.finish_reason;
                             partial_event.llm_response.usage_metadata = chunk.usage_metadata.clone();
-                            partial_event.llm_response.content = chunk.content.clone();
-                            partial_event.llm_response.provider_metadata = chunk.provider_metadata.clone();
-                            partial_event.llm_response.interaction_id = chunk.interaction_id.clone();
-
-                            // Populate long_running_tool_ids
-                            if let Some(ref content) = chunk.content {
+                            // The terminal event carries the FULL accumulated content (all streamed
+                            // text/thinking deltas + any tool calls), so the persisted turn is the
+                            // complete assistant reply — not the last provider chunk, whose `content`
+                            // is frequently `null`. Partial chunks still carry their own delta for
+                            // live streaming. `accumulated_content` already includes this chunk (it
+                            // was extended just above). FClaw persistence fix — see docs/ADK_FORK.md.
+                            let terminal_content = if is_terminal {
+                                accumulated_content.clone()
+                            } else {
+                                chunk.content.clone()
+                            };
+                            // Populate long_running_tool_ids from the same content the event carries
+                            // (accumulated for the terminal, the delta for a partial) BEFORE the
+                            // content is moved onto the event.
+                            if let Some(ref content) = terminal_content {
                                 partial_event.long_running_tool_ids = collect_long_running_ids(content);
                             }
+                            partial_event.llm_response.content = terminal_content;
+                            partial_event.llm_response.provider_metadata = chunk.provider_metadata.clone();
+                            partial_event.llm_response.interaction_id = chunk.interaction_id.clone();
 
                             yield Ok(partial_event);
                         }
@@ -1852,8 +2012,14 @@ impl Agent for LlmAgent {
 
                         let mut final_event = Event::with_id(&llm_event_id, &invocation_id);
                         final_event.author = agent_name.clone();
-                        final_event.llm_request = Some(request_json.clone());
-                        final_event.provider_metadata.insert("gcp.vertex.agent.llm_request".to_string(), request_json.clone());
+                        attach_model_request(
+                            &mut final_event,
+                            req_persistence,
+                            &request_json,
+                            request_digest.as_ref(),
+                            last_chunk.as_ref().and_then(|c| c.usage_metadata.as_ref()),
+                            last_chunk.as_ref().and_then(|c| c.finish_reason),
+                        );
                         final_event.llm_response.content = accumulated_content.clone();
                         final_event.llm_response.partial = false;
                         final_event.llm_response.turn_complete = true;

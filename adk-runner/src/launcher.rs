@@ -129,6 +129,7 @@ impl Launcher {
                 cache_capable: None,
                 request_context: None,
                 cancellation_token: None,
+                session_concurrency: None,
                 intra_compaction_config: None,
                 intra_compaction_summarizer: None,
                 #[cfg(feature = "context-compaction")]

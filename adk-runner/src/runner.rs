@@ -12,9 +12,172 @@ use adk_session::SessionService;
 #[cfg(feature = "skills")]
 use adk_skill::{SkillInjector, SkillInjectorConfig};
 use async_stream::stream;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+
+/// A handle to a started agent run, returned by [`Runner::start`].
+///
+/// Carries the invocation's event stream plus the invocation-scoped cancellation
+/// handle. Dropping the handle does **not** clean up the run's registry entry or
+/// release any concurrency permit — that lifecycle is anchored *inside* the
+/// [`EventStream`] itself (RAII), so the stream owns the full lifecycle even when
+/// the handle is discarded immediately (as the [`Runner::run`] shim does).
+pub struct RunHandle {
+    /// The invocation identifier minted for this run (`"inv-<uuid>"`).
+    pub invocation_id: String,
+    /// The session this run belongs to.
+    pub session_id: SessionId,
+    /// The event stream produced by the run.
+    pub events: EventStream,
+    /// The invocation-scoped cancellation token. Cancelling it stops this run.
+    cancellation: CancellationToken,
+}
+
+impl RunHandle {
+    /// Cancel this specific invocation. Idempotent; cancels the child token this
+    /// handle owns (no registry lookup).
+    pub fn cancel(&self) {
+        self.cancellation.cancel();
+    }
+
+    /// Returns the invocation identifier for this run.
+    pub fn invocation_id(&self) -> &str {
+        &self.invocation_id
+    }
+
+    /// A clone of this invocation's cancellation token, so a caller can consume
+    /// [`RunHandle::events`] while retaining the ability to cancel the run (e.g. an
+    /// on-disconnect guard). Cancelling the returned token is equivalent to [`RunHandle::cancel`].
+    pub fn cancel_token(&self) -> CancellationToken {
+        self.cancellation.clone()
+    }
+}
+
+/// Policy governing how concurrent runs targeting the **same** session are handled.
+///
+/// The default is [`AllowConcurrent`](Self::AllowConcurrent), which preserves the
+/// historical behavior (no gating — concurrent same-session runs execute in parallel).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SessionConcurrencyPolicy {
+    /// Serialize runs per session behind a fair (FIFO) async semaphore.
+    ///
+    /// `max_queue` bounds how many runs may **wait** behind the in-flight run for a
+    /// given session; a run that would exceed it is rejected with a structured busy
+    /// error instead of queueing. `retained_sessions` bounds the number of
+    /// per-session gates retained in memory (idle gates are evicted LRU).
+    Serialize {
+        /// Maximum queued (waiting) runs per session before rejection.
+        max_queue: usize,
+        /// Maximum number of per-session gates retained (LRU-evicted when idle).
+        retained_sessions: usize,
+    },
+    /// Reject a new run if the session already has an in-flight run.
+    RejectConcurrent,
+    /// Allow unbounded concurrent runs per session (historical default).
+    #[default]
+    AllowConcurrent,
+}
+
+/// Registry of in-flight invocations, keyed by invocation id, with a secondary
+/// index from session id to its (FIFO-ordered) invocation ids. One lock guards
+/// both maps so they stay consistent.
+#[derive(Default)]
+struct Registry {
+    active: HashMap<String, CancellationToken>,
+    by_session: HashMap<String, Vec<String>>,
+}
+
+/// A per-session serialization gate: a fair permit-of-1 semaphore plus a depth
+/// counter (holder + waiters) used to enforce `max_queue`.
+#[derive(Clone)]
+struct SessionGate {
+    sem: Arc<Semaphore>,
+    depth: Arc<AtomicUsize>,
+}
+
+/// RAII guard that decrements a session gate's depth counter when a run leaves the
+/// gate region (finished after acquiring, or cancelled while queued). The reject
+/// path decrements manually before this guard is ever created.
+struct DepthGuard {
+    depth: Arc<AtomicUsize>,
+}
+
+impl Drop for DepthGuard {
+    fn drop(&mut self) {
+        self.depth.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Bounded map of per-session gates with LRU eviction of idle entries.
+struct SessionGates {
+    map: HashMap<String, SessionGate>,
+    order: Vec<String>,
+    capacity: usize,
+}
+
+impl SessionGates {
+    fn new(capacity: usize) -> Self {
+        Self { map: HashMap::new(), order: Vec::new(), capacity: capacity.max(1) }
+    }
+
+    /// Get the gate for `session_id`, creating it if absent. Evicts an idle
+    /// (unreferenced) LRU gate first when at capacity. The returned gate is a
+    /// cheap clone (two `Arc`s) whose existence keeps the entry non-evictable
+    /// until the caller drops it.
+    fn get_or_create(&mut self, session_id: &str) -> SessionGate {
+        if let Some(gate) = self.map.get(session_id) {
+            let gate = gate.clone();
+            self.touch(session_id);
+            return gate;
+        }
+        if self.map.len() >= self.capacity {
+            self.evict_idle();
+        }
+        let gate =
+            SessionGate { sem: Arc::new(Semaphore::new(1)), depth: Arc::new(AtomicUsize::new(0)) };
+        self.map.insert(session_id.to_string(), gate.clone());
+        self.order.push(session_id.to_string());
+        gate
+    }
+
+    fn touch(&mut self, session_id: &str) {
+        if let Some(pos) = self.order.iter().position(|s| s == session_id) {
+            let s = self.order.remove(pos);
+            self.order.push(s);
+        }
+    }
+
+    /// Remove the least-recently-used gate that is currently idle — i.e. not
+    /// referenced by any in-flight or queued run. `Arc::strong_count == 1` means
+    /// only this map holds the semaphore, so no run is holding or waiting on it,
+    /// making eviction safe (it can never split serialization of a live session).
+    fn evict_idle(&mut self) {
+        if let Some(pos) = self
+            .order
+            .iter()
+            .position(|sid| self.map.get(sid).is_some_and(|g| Arc::strong_count(&g.sem) == 1))
+        {
+            let sid = self.order.remove(pos);
+            self.map.remove(&sid);
+        }
+    }
+}
+
+/// Stable structured error yielded when a run is refused by the session
+/// concurrency policy (`RejectConcurrent`, or `Serialize` `max_queue` exceeded).
+/// Downstream code detects it by the stable code `"runner.session_busy"`.
+fn session_busy_error() -> adk_core::AdkError {
+    adk_core::AdkError::new(
+        adk_core::ErrorComponent::Server,
+        adk_core::ErrorCategory::Unavailable,
+        "runner.session_busy",
+        "session busy: run rejected by session concurrency policy",
+    )
+}
 
 /// Configuration for constructing a [`Runner`].
 ///
@@ -59,6 +222,9 @@ pub struct RunnerConfig {
     pub request_context: Option<adk_core::RequestContext>,
     /// Optional cooperative cancellation token for externally managed runs.
     pub cancellation_token: Option<CancellationToken>,
+    /// Optional session concurrency policy governing same-session runs.
+    /// Defaults to [`SessionConcurrencyPolicy::AllowConcurrent`] when unset.
+    pub session_concurrency: Option<SessionConcurrencyPolicy>,
     /// Optional intra-invocation compaction configuration.
     /// When set, the runner estimates token count before each agent run
     /// and triggers mid-invocation summarization when the threshold is exceeded.
@@ -104,9 +270,14 @@ pub struct Runner {
     /// Optional context compaction configuration for token-budget overflow handling.
     #[cfg(feature = "context-compaction")]
     context_compaction: Option<Arc<crate::compaction::CompactionConfig>>,
-    /// Per-session cancellation tokens for the interrupt API.
-    /// Each `run()` call registers a token here; `interrupt()` cancels it.
-    active_sessions: Arc<std::sync::Mutex<std::collections::HashMap<String, CancellationToken>>>,
+    /// In-flight invocation registry (invocation-id keyed + session index).
+    /// Each run registers its invocation-scoped token here from *inside* its
+    /// event stream; `interrupt*` cancels the matching token(s).
+    registry: Arc<std::sync::Mutex<Registry>>,
+    /// Session concurrency policy governing same-session runs.
+    session_concurrency: SessionConcurrencyPolicy,
+    /// Per-session serialization gates (used only under `Serialize`).
+    session_gates: Arc<std::sync::Mutex<SessionGates>>,
 }
 
 impl Runner {
@@ -158,6 +329,12 @@ impl Runner {
             })
         });
 
+        let session_concurrency = config.session_concurrency.unwrap_or_default();
+        let gate_capacity = match session_concurrency {
+            SessionConcurrencyPolicy::Serialize { retained_sessions, .. } => retained_sessions,
+            _ => 1,
+        };
+
         Ok(Self {
             app_name: config.app_name,
             root_agent: config.agent,
@@ -179,7 +356,9 @@ impl Runner {
             intra_compactor,
             #[cfg(feature = "context-compaction")]
             context_compaction: config.context_compaction.map(Arc::new),
-            active_sessions: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            registry: Arc::new(std::sync::Mutex::new(Registry::default())),
+            session_concurrency,
+            session_gates: Arc::new(std::sync::Mutex::new(SessionGates::new(gate_capacity))),
         })
     }
 
@@ -220,18 +399,89 @@ impl Runner {
         Ok(())
     }
 
+    /// Start an agent run, returning a [`RunHandle`].
+    ///
+    /// Synchronous: performs the single eager fallible step (`AppName` validation),
+    /// mints the invocation id (kept in the `"inv-<uuid>"` format used by telemetry
+    /// spans), derives the invocation-scoped cancellation token, and builds the lazy
+    /// event stream. **All run lifecycle** — registry registration/cleanup and the
+    /// serialization permit — is anchored *inside* the returned
+    /// [`RunHandle::events`] stream via RAII (never in a handle field), so discarding
+    /// the handle (as [`run`](Self::run) does) never orphans state.
+    pub fn start(
+        &self,
+        user_id: UserId,
+        session_id: SessionId,
+        user_content: Content,
+    ) -> Result<RunHandle> {
+        // Eager, fallible: validate the app name up front (the one fallible step
+        // that must surface synchronously to the caller).
+        let typed_app_name = AppName::try_from(self.app_name.clone())?;
+
+        // Mint the invocation id eagerly: it is validated by `InvocationId::try_from`
+        // inside the context builder and drives the telemetry span attributes, so it
+        // must be stable across the whole run.
+        let invocation_id = format!("inv-{}", uuid::Uuid::new_v4());
+
+        // Derive the invocation-scoped cancellation token. When a global token is
+        // configured, make this a CHILD of it (`child_token`) so global cancellation
+        // propagates here with ZERO spawned tasks; `interrupt*` cancels only this run.
+        //
+        // (FClaw memory fix — see docs/ADK_FORK.md. The previous implementation spawned
+        // two watcher tasks per run to union the global + session tokens, but never
+        // aborted them; `child_token` expresses the same "cancel on either" union with
+        // no tasks at all.)
+        let session_token = match &self.cancellation_token {
+            Some(global) => global.child_token(),
+            None => CancellationToken::new(),
+        };
+
+        let events = self.build_event_stream(
+            invocation_id.clone(),
+            typed_app_name,
+            session_token.clone(),
+            user_id,
+            session_id.clone(),
+            user_content,
+        );
+
+        Ok(RunHandle { invocation_id, session_id, events, cancellation: session_token })
+    }
+
     /// Execute the root agent for the given user and session, returning an event stream.
     ///
     /// Retrieves (or creates) the session, resolves the target agent, runs
     /// plugins/skills, and streams events as the agent executes.
+    ///
+    /// This is a thin shim over [`start`](Self::start) — it discards the
+    /// [`RunHandle`] and returns only its event stream. Because all lifecycle
+    /// cleanup lives inside the stream, discarding the handle is safe.
     pub async fn run(
         &self,
         user_id: UserId,
         session_id: SessionId,
         user_content: Content,
     ) -> Result<EventStream> {
+        Ok(self.start(user_id, session_id, user_content)?.events)
+    }
+
+    /// Build the lazy event stream for a run whose invocation id and cancellation
+    /// token were minted by [`start`](Self::start).
+    ///
+    /// The registry registration + [`SessionCleanup`] guard and (under `Serialize`)
+    /// the serialization permit are all anchored inside the returned stream, so they
+    /// are created only when the stream is first polled and released by RAII when it
+    /// ends or is dropped.
+    fn build_event_stream(
+        &self,
+        invocation_id: String,
+        typed_app_name: AppName,
+        session_token: CancellationToken,
+        user_id: UserId,
+        session_id: SessionId,
+        user_content: Content,
+    ) -> EventStream {
         let app_name = self.app_name.clone();
-        let typed_app_name = AppName::try_from(app_name.clone())?;
         let session_service = self.session_service.clone();
         let root_agent = self.root_agent.clone();
         #[cfg(feature = "artifacts")]
@@ -247,55 +497,129 @@ impl Runner {
         let cache_capable = self.cache_capable.clone();
         let cache_manager_ref = self.cache_manager.clone();
         let request_context = self.request_context.clone();
-        let cancellation_token = self.cancellation_token.clone();
         let intra_compactor = self.intra_compactor.clone();
         #[cfg(feature = "context-compaction")]
         let context_compaction = self.context_compaction.clone();
 
-        // Register a per-session cancellation token for the interrupt API. When a global token is
-        // configured, make the session token a CHILD of it (`child_token`): global cancellation
-        // propagates to this run automatically, and a per-session `interrupt()` cancels only this
-        // run — with ZERO spawned tasks.
-        //
-        // (FClaw memory fix — see docs/ADK_FORK.md. The previous implementation spawned two watcher
-        // tasks per run to union the global + session tokens, but never aborted them; on a normal
-        // turn the session token is never cancelled, so its watcher task — and everything it
-        // captured — parked on the waker list until process shutdown, ~1.2 KB of resident slope per
-        // request. `child_token` expresses the same "cancel on either" union with no tasks at all.)
-        let session_token = match &cancellation_token {
-            Some(global) => global.child_token(),
-            None => CancellationToken::new(),
-        };
-        let session_id_str = session_id.as_str().to_string();
-        {
-            let mut sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
-            sessions.insert(session_id_str.clone(), session_token.clone());
-        }
-        let active_sessions = self.active_sessions.clone();
+        let registry = self.registry.clone();
+        let session_concurrency = self.session_concurrency;
+        let session_gates = self.session_gates.clone();
 
-        // The session token already unifies global + per-session cancellation (see above), so it IS
-        // the effective token — no combined token, no watcher tasks.
-        let effective_token = Some(session_token);
+        let session_id_str = session_id.as_str().to_string();
+
+        // The invocation-scoped token unifies global + per-invocation cancellation
+        // (it is a child of the global token when one is configured), so it IS the
+        // effective token — no combined token, no watcher tasks.
+        let effective_token = Some(session_token.clone());
 
         let s = stream! {
-            // Clean up session tracking when the stream ends.
-            // We use a simple struct with Drop to ensure cleanup even on early return.
+            // ===== REGISTRY REGISTRATION + RAII CLEANUP =====
+            // Registration lives INSIDE the stream (not in start()) so a handle whose
+            // stream is never polled never leaks a registry entry. The Drop guard
+            // removes both the invocation-keyed token and the session index entry.
             struct SessionCleanup {
-                active_sessions: Arc<std::sync::Mutex<std::collections::HashMap<String, CancellationToken>>>,
+                registry: Arc<std::sync::Mutex<Registry>>,
+                invocation_id: String,
                 session_id: String,
             }
             impl Drop for SessionCleanup {
                 fn drop(&mut self) {
-                    let mut sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
-                    sessions.remove(&self.session_id);
+                    let mut reg = self.registry.lock().unwrap_or_else(|e| e.into_inner());
+                    reg.active.remove(&self.invocation_id);
+                    if let Some(ids) = reg.by_session.get_mut(&self.session_id) {
+                        ids.retain(|id| id != &self.invocation_id);
+                        if ids.is_empty() {
+                            reg.by_session.remove(&self.session_id);
+                        }
+                    }
                 }
             }
+
+            // RejectConcurrent: refuse before registering if the session already has an
+            // in-flight run. Otherwise register (invocation-keyed token + FIFO session
+            // index) so distinct same-session runs never overwrite each other. The lock
+            // guard is fully released (the block yields a plain bool) BEFORE any yield/
+            // await, so no MutexGuard is ever held across a suspension point.
+            let rejected = {
+                let mut reg = registry.lock().unwrap_or_else(|e| e.into_inner());
+                if matches!(session_concurrency, SessionConcurrencyPolicy::RejectConcurrent)
+                    && reg.by_session.get(&session_id_str).is_some_and(|v| !v.is_empty())
+                {
+                    true
+                } else {
+                    reg.active.insert(invocation_id.clone(), session_token.clone());
+                    reg.by_session
+                        .entry(session_id_str.clone())
+                        .or_default()
+                        .push(invocation_id.clone());
+                    false
+                }
+            };
+            if rejected {
+                tracing::debug!(
+                    session.id = %session_id_str,
+                    "rejecting concurrent run (RejectConcurrent policy)"
+                );
+                yield Err(session_busy_error());
+                return;
+            }
             let _cleanup = SessionCleanup {
-                active_sessions: active_sessions.clone(),
-                session_id: session_id_str,
+                registry: registry.clone(),
+                invocation_id: invocation_id.clone(),
+                session_id: session_id_str.clone(),
             };
 
-            // Use the effective token (combines global + per-session)
+            // ===== SESSION SERIALIZATION GATE (Serialize policy only) =====
+            // Hold an OwnedSemaphorePermit for the WHOLE run so same-session runs
+            // execute one-at-a-time (fair FIFO), while different sessions use different
+            // semaphores and run in parallel. The permit (and the depth guard) are held
+            // in this stream local and released by RAII on stream end/return.
+            let _serialize_permit: Option<(OwnedSemaphorePermit, DepthGuard)>;
+            if let SessionConcurrencyPolicy::Serialize { max_queue, .. } = session_concurrency {
+                let gate = {
+                    let mut gates = session_gates.lock().unwrap_or_else(|e| e.into_inner());
+                    gates.get_or_create(&session_id_str)
+                };
+                // depth = holder + waiters. `depth_before` runs are already in the gate
+                // region; this run would become waiter #depth_before (one in-region run
+                // holds the permit). Reject when that would exceed max_queue.
+                let depth_before = gate.depth.fetch_add(1, Ordering::SeqCst);
+                if depth_before > max_queue {
+                    gate.depth.fetch_sub(1, Ordering::SeqCst);
+                    tracing::debug!(
+                        session.id = %session_id_str,
+                        max_queue,
+                        "rejecting run (Serialize max_queue exceeded)"
+                    );
+                    yield Err(session_busy_error());
+                    return; // _cleanup drops → registry entry removed
+                }
+                let depth_guard = DepthGuard { depth: gate.depth.clone() };
+
+                // A queued run stays cancellable (via interrupt* or stream drop) while it
+                // waits; the semaphore is fair ⇒ FIFO ordering.
+                let permit = tokio::select! {
+                    biased;
+                    _ = session_token.cancelled() => {
+                        tracing::debug!(
+                            session.id = %session_id_str,
+                            "queued run cancelled before acquiring session gate"
+                        );
+                        return; // depth_guard + _cleanup drop → all state released
+                    }
+                    res = gate.sem.clone().acquire_owned() => {
+                        match res {
+                            Ok(p) => p,
+                            Err(_) => return, // semaphore closed (never, in practice)
+                        }
+                    }
+                };
+                _serialize_permit = Some((permit, depth_guard));
+            } else {
+                _serialize_permit = None;
+            }
+
+            // Use the effective token (global + per-invocation via child token)
             let cancellation_token = effective_token;
             // Get or create session
             let session = match session_service
@@ -323,8 +647,8 @@ impl Runner {
             let artifact_service_clone = artifact_service.clone();
             let memory_service_clone = memory_service.clone();
 
-            // Create invocation context with MutableSession
-            let invocation_id = format!("inv-{}", uuid::Uuid::new_v4());
+            // Create invocation context with MutableSession. `invocation_id` was
+            // minted eagerly in `start()` and captured into this stream.
             #[cfg(any(feature = "skills", feature = "plugins"))]
             let mut effective_user_content = user_content.clone();
             #[cfg(not(any(feature = "skills", feature = "plugins")))]
@@ -1051,7 +1375,7 @@ impl Runner {
             }
         };
 
-        Ok(Box::pin(s))
+        Box::pin(s)
     }
 
     /// Convenience method that accepts string arguments.
@@ -1074,14 +1398,14 @@ impl Runner {
         self.run(user_id, session_id, user_content).await
     }
 
-    /// Interrupt a running agent for the given session.
+    /// Interrupts **all** in-flight invocations for the given session.
     ///
-    /// Cancels the agent's current execution within the event loop. Events
-    /// already produced and appended to the session are preserved — only
-    /// future events are stopped. The caller can then issue a new `run()`
-    /// call with a different instruction to redirect the agent.
+    /// Cancels every invocation-scoped token currently registered under this
+    /// session id (matching the caller's per-session disconnect intent). Events
+    /// already produced and appended to the session are preserved — only future
+    /// events are stopped.
     ///
-    /// Returns `true` if a running session was found and interrupted,
+    /// Returns `true` if at least one running invocation was found and cancelled,
     /// `false` if no active run exists for that session ID.
     ///
     /// # Example
@@ -1099,10 +1423,24 @@ impl Runner {
     /// let mut stream = runner.run(user_id, session_id, new_content).await?;
     /// ```
     pub fn interrupt(&self, session_id: &str) -> bool {
-        let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(token) = sessions.get(session_id) {
-            tracing::info!(session.id = session_id, "interrupting running agent");
-            token.cancel();
+        let reg = self.registry.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(inv_ids) = reg.by_session.get(session_id) else {
+            tracing::debug!(session.id = session_id, "no active run to interrupt");
+            return false;
+        };
+        let mut cancelled = 0usize;
+        for inv_id in inv_ids {
+            if let Some(token) = reg.active.get(inv_id) {
+                token.cancel();
+                cancelled += 1;
+            }
+        }
+        if cancelled > 0 {
+            tracing::info!(
+                session.id = session_id,
+                invocations = cancelled,
+                "interrupting running agent(s)"
+            );
             true
         } else {
             tracing::debug!(session.id = session_id, "no active run to interrupt");
@@ -1110,10 +1448,27 @@ impl Runner {
         }
     }
 
+    /// Interrupts a single in-flight invocation by its invocation id.
+    ///
+    /// Cancels only the run identified by `invocation_id`, leaving any other
+    /// concurrent invocations of the same session untouched. Returns `true` if the
+    /// invocation was found and cancelled, `false` otherwise.
+    pub fn interrupt_invocation(&self, invocation_id: &str) -> bool {
+        let reg = self.registry.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(token) = reg.active.get(invocation_id) {
+            tracing::info!(invocation.id = invocation_id, "interrupting invocation");
+            token.cancel();
+            true
+        } else {
+            tracing::debug!(invocation.id = invocation_id, "no active invocation to interrupt");
+            false
+        }
+    }
+
     /// Returns the session IDs of all currently running agent executions.
     pub fn active_session_ids(&self) -> Vec<String> {
-        let sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions.keys().cloned().collect()
+        let reg = self.registry.lock().unwrap_or_else(|e| e.into_inner());
+        reg.by_session.keys().cloned().collect()
     }
 
     /// Returns a reference to the context compaction configuration, if set.

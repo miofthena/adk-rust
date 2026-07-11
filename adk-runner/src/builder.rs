@@ -26,7 +26,7 @@ use adk_plugin::PluginManager;
 use adk_session::SessionService;
 use tokio_util::sync::CancellationToken;
 
-use crate::runner::{Runner, RunnerConfig};
+use crate::runner::{Runner, RunnerConfig, SessionConcurrencyPolicy};
 
 // ---------------------------------------------------------------------------
 // Typestate marker types
@@ -68,6 +68,7 @@ pub struct RunnerConfigBuilder<A, G, S> {
     cache_capable: Option<Arc<dyn CacheCapable>>,
     request_context: Option<adk_core::RequestContext>,
     cancellation_token: Option<CancellationToken>,
+    session_concurrency: Option<SessionConcurrencyPolicy>,
     intra_compaction_config: Option<adk_core::IntraCompactionConfig>,
     intra_compaction_summarizer: Option<Arc<dyn adk_core::BaseEventsSummarizer>>,
     #[cfg(feature = "context-compaction")]
@@ -93,6 +94,7 @@ impl RunnerConfigBuilder<NoAppName, NoAgent, NoSessionService> {
             cache_capable: None,
             request_context: None,
             cancellation_token: None,
+            session_concurrency: None,
             intra_compaction_config: None,
             intra_compaction_summarizer: None,
             #[cfg(feature = "context-compaction")]
@@ -130,6 +132,7 @@ impl<A, G, S> RunnerConfigBuilder<A, G, S> {
             cache_capable: self.cache_capable,
             request_context: self.request_context,
             cancellation_token: self.cancellation_token,
+            session_concurrency: self.session_concurrency,
             intra_compaction_config: self.intra_compaction_config,
             intra_compaction_summarizer: self.intra_compaction_summarizer,
             #[cfg(feature = "context-compaction")]
@@ -155,6 +158,7 @@ impl<A, G, S> RunnerConfigBuilder<A, G, S> {
             cache_capable: self.cache_capable,
             request_context: self.request_context,
             cancellation_token: self.cancellation_token,
+            session_concurrency: self.session_concurrency,
             intra_compaction_config: self.intra_compaction_config,
             intra_compaction_summarizer: self.intra_compaction_summarizer,
             #[cfg(feature = "context-compaction")]
@@ -183,6 +187,7 @@ impl<A, G, S> RunnerConfigBuilder<A, G, S> {
             cache_capable: self.cache_capable,
             request_context: self.request_context,
             cancellation_token: self.cancellation_token,
+            session_concurrency: self.session_concurrency,
             intra_compaction_config: self.intra_compaction_config,
             intra_compaction_summarizer: self.intra_compaction_summarizer,
             #[cfg(feature = "context-compaction")]
@@ -253,6 +258,15 @@ impl<A, G, S> RunnerConfigBuilder<A, G, S> {
         self
     }
 
+    /// Set the session concurrency policy (optional).
+    ///
+    /// Defaults to [`SessionConcurrencyPolicy::AllowConcurrent`] when unset,
+    /// preserving the historical no-gate behavior.
+    pub fn session_concurrency(mut self, policy: SessionConcurrencyPolicy) -> Self {
+        self.session_concurrency = Some(policy);
+        self
+    }
+
     /// Set the intra-invocation compaction configuration (optional).
     pub fn intra_compaction_config(mut self, config: adk_core::IntraCompactionConfig) -> Self {
         self.intra_compaction_config = Some(config);
@@ -305,6 +319,7 @@ impl RunnerConfigBuilder<HasAppName, HasAgent, HasSessionService> {
             cache_capable: self.cache_capable,
             request_context: self.request_context,
             cancellation_token: self.cancellation_token,
+            session_concurrency: self.session_concurrency,
             intra_compaction_config: self.intra_compaction_config,
             intra_compaction_summarizer: self.intra_compaction_summarizer,
             #[cfg(feature = "context-compaction")]
@@ -338,6 +353,7 @@ impl RunnerConfigBuilder<HasAppName, HasAgent, HasSessionService> {
             cache_capable: self.cache_capable,
             request_context: self.request_context,
             cancellation_token: self.cancellation_token,
+            session_concurrency: self.session_concurrency,
             intra_compaction_config: self.intra_compaction_config,
             intra_compaction_summarizer: self.intra_compaction_summarizer,
             #[cfg(feature = "context-compaction")]

@@ -31,7 +31,10 @@ pub use local_unix::{LocalUnixClient, LocalUnixSession};
 pub use manifest::{Manifest, ManifestEntry};
 pub use path_safety::validate_relative_path;
 pub use session::SandboxSession;
-pub use types::{DirEntry, EntryType, ExecOutput, SessionHandle, SnapshotId};
+pub use types::{
+    DEFAULT_TERMINATION_GRACE, DirEntry, EntryType, ExecOptions, ExecOutput, SessionHandle,
+    SnapshotId,
+};
 
 #[cfg(feature = "workspace-docker")]
 pub use docker::{DockerClient, DockerSession};

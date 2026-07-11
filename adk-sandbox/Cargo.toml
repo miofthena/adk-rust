@@ -23,6 +23,13 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tempfile = "3.10"
 
+# Workspace lifecycle: process-group termination + cancellation.
+# Only pulled in by the `workspace` feature (Unix-only local session). `nix`
+# gives us `killpg` for graceful whole-process-group SIGTERM→SIGKILL without
+# raw `libc`/`unsafe`; `tokio-util` provides the CancellationToken seam.
+nix = { version = "0.29", features = ["signal"], optional = true }
+tokio-util = { version = "0.7", optional = true }
+
 # Optional dependencies for wasm feature
 wasmtime = { version = "45", optional = true }
 wasmtime-wasi = { version = "45", optional = true }
@@ -46,7 +53,7 @@ wasm = ["dep:wasmtime", "dep:wasmtime-wasi"]
 process = []  # no extra deps, uses tokio
 
 # Workspace lifecycle (sandbox-agent harness)
-workspace = ["dep:tar", "dep:uuid"]
+workspace = ["dep:tar", "dep:uuid", "dep:nix", "dep:tokio-util", "tokio/macros"]
 workspace-docker = ["workspace", "dep:bollard", "dep:futures"]
 
 # OS-level sandbox enforcers

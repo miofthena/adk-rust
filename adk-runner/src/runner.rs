@@ -390,6 +390,12 @@ impl Runner {
                 invocation_ctx = invocation_ctx.with_request_context(rc);
             }
 
+            // Thread the effective per-session cancellation token so tools can
+            // observe interruption via `ToolContext::cancellation_token()`.
+            if let Some(token) = cancellation_token.clone() {
+                invocation_ctx = invocation_ctx.with_cancellation_token(token);
+            }
+
             let mut ctx = Arc::new(invocation_ctx);
 
             #[cfg(feature = "plugins")]
@@ -463,6 +469,9 @@ impl Runner {
                         refreshed_ctx = refreshed_ctx.with_run_config(run_config.clone());
                         if let Some(rc) = request_context.clone() {
                             refreshed_ctx = refreshed_ctx.with_request_context(rc);
+                        }
+                        if let Some(token) = cancellation_token.clone() {
+                            refreshed_ctx = refreshed_ctx.with_cancellation_token(token);
                         }
                         ctx = Arc::new(refreshed_ctx);
                     }
@@ -584,6 +593,9 @@ impl Runner {
                     refreshed_ctx = refreshed_ctx.with_run_config(run_config.clone());
                     if let Some(rc) = request_context.clone() {
                         refreshed_ctx = refreshed_ctx.with_request_context(rc);
+                    }
+                    if let Some(token) = cancellation_token.clone() {
+                        refreshed_ctx = refreshed_ctx.with_cancellation_token(token);
                     }
                     ctx = Arc::new(refreshed_ctx);
                 }
@@ -869,6 +881,9 @@ impl Runner {
                 transfer_ctx = transfer_ctx.with_run_config(transfer_run_config);
                 if let Some(rc) = request_context.clone() {
                     transfer_ctx = transfer_ctx.with_request_context(rc);
+                }
+                if let Some(token) = cancellation_token.clone() {
+                    transfer_ctx = transfer_ctx.with_cancellation_token(token);
                 }
 
                 let transfer_ctx = Arc::new(transfer_ctx);

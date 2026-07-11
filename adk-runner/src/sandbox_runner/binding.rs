@@ -55,10 +55,7 @@ pub fn bind_tools(
     let mut tools: Vec<Arc<dyn adk_core::Tool>> = Vec::new();
 
     if capabilities.contains(&Capability::Shell) {
-        tools.push(Arc::new(ExecCommandTool {
-            session: Arc::clone(&session),
-            timeout: command_timeout,
-        }));
+        tools.push(Arc::new(ExecCommandTool::new(Arc::clone(&session), command_timeout)));
     }
 
     if capabilities.contains(&Capability::Filesystem) {

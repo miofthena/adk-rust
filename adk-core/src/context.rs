@@ -523,6 +523,17 @@ pub trait InvocationContext: CallbackContext {
     async fn get_secret(&self, _name: &str) -> Result<Option<String>> {
         Ok(None)
     }
+
+    /// Returns the cancellation token for this invocation, if the runner
+    /// threaded one through.
+    ///
+    /// This is the seam that lets a tool context expose cancellation to tools
+    /// (see [`ToolContext::cancellation_token`](crate::ToolContext::cancellation_token)).
+    /// The default returns `None`; the runner's concrete context overrides it
+    /// with the effective per-session token.
+    fn cancellation_token(&self) -> Option<tokio_util::sync::CancellationToken> {
+        None
+    }
 }
 
 // Placeholder service traits

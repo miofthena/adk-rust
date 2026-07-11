@@ -19,6 +19,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }
+# CancellationToken seam used by the ToolContext/InvocationContext cancellation
+# accessors (default-None; a no-op cost until a runner threads a token through).
+tokio-util = { version = "0.7" }
 tracing = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }

@@ -7,6 +7,7 @@ use adk_session::Session as AdkSession;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, atomic::AtomicBool};
+use tokio_util::sync::CancellationToken;
 
 /// MutableSession wraps a session with shared mutable state.
 ///
@@ -251,6 +252,10 @@ pub struct InvocationContext {
     /// Optional secret service for retrieving secrets at runtime.
     /// When present, `get_secret()` delegates to this service.
     secret_service: Option<Arc<dyn SecretService>>,
+    /// Optional cancellation token, threaded down from the runner's effective
+    /// per-session token. When present, tools reach it via
+    /// `ToolContext::cancellation_token()` and can abort promptly on interrupt.
+    cancellation_token: Option<CancellationToken>,
 }
 
 impl InvocationContext {
@@ -282,6 +287,7 @@ impl InvocationContext {
             request_context: None,
             shared_state: None,
             secret_service: None,
+            cancellation_token: None,
         })
     }
 
@@ -338,6 +344,7 @@ impl InvocationContext {
             request_context: None,
             shared_state: None,
             secret_service: None,
+            cancellation_token: None,
         })
     }
 
@@ -413,6 +420,15 @@ impl InvocationContext {
     /// Azure Key Vault, GCP Secret Manager).
     pub fn with_secret_service(mut self, service: Arc<dyn SecretService>) -> Self {
         self.secret_service = Some(service);
+        self
+    }
+
+    /// Thread a cancellation token into this context.
+    ///
+    /// The runner passes its effective per-session token here so tools can
+    /// observe interruption via `ToolContext::cancellation_token()`.
+    pub fn with_cancellation_token(mut self, token: CancellationToken) -> Self {
+        self.cancellation_token = Some(token);
         self
     }
 
@@ -514,5 +530,9 @@ impl InvocationContextTrait for InvocationContext {
             Some(service) => service.get_secret(name).await.map(Some),
             None => Ok(None),
         }
+    }
+
+    fn cancellation_token(&self) -> Option<CancellationToken> {
+        self.cancellation_token.clone()
     }
 }

@@ -9,7 +9,7 @@
 
 use async_trait::async_trait;
 
-use super::types::{DirEntry, ExecOutput};
+use super::types::{DirEntry, ExecOptions, ExecOutput};
 use crate::error::SandboxError;
 
 /// A live sandbox session providing workspace operations.
@@ -59,6 +59,27 @@ pub trait SandboxSession: Send + Sync {
         command: &str,
         working_dir: Option<&str>,
     ) -> Result<ExecOutput, SandboxError>;
+
+    /// Executes a shell command with rich [`ExecOptions`] (stdin, an output
+    /// byte cap, a per-command timeout, cooperative cancellation, and a
+    /// process-group termination grace).
+    ///
+    /// The default implementation ignores everything except
+    /// [`ExecOptions::working_dir`] and delegates to [`Self::exec_command`],
+    /// so existing session backends keep working unchanged. Backends that can
+    /// honor the richer semantics (e.g. the local Unix session) override this.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SandboxError::PathTraversal` if `working_dir` escapes the
+    /// workspace root.
+    async fn exec_command_opts(
+        &self,
+        command: &str,
+        opts: ExecOptions,
+    ) -> Result<ExecOutput, SandboxError> {
+        self.exec_command(command, opts.working_dir.as_deref()).await
+    }
 
     /// Reads a file from the workspace.
     ///

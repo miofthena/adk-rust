@@ -187,6 +187,18 @@ pub trait ToolContext: CallbackContext {
     async fn get_secret(&self, _name: &str) -> Result<Option<String>> {
         Ok(None)
     }
+
+    /// Returns the cancellation token scoped to this tool invocation, if the
+    /// runtime threads one through.
+    ///
+    /// Long-running tools (e.g. a shell exec) can select on
+    /// `token.cancelled()` to abort promptly when the run is interrupted. The
+    /// default returns `None` — every existing `ToolContext` keeps compiling
+    /// and simply reports "not cancellable". The runner-built tool context
+    /// overrides this to expose the effective per-session token.
+    fn cancellation_token(&self) -> Option<tokio_util::sync::CancellationToken> {
+        None
+    }
 }
 
 /// Configuration for automatic tool retry on failure.

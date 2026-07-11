@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 /// Opaque handle to a provisioned sandbox session.
 ///
@@ -91,10 +92,23 @@ pub struct ExecOutput {
     pub duration: Duration,
     /// Whether the command was terminated due to exceeding the timeout.
     pub timed_out: bool,
+    /// Whether captured output was truncated because it exceeded the
+    /// configured `max_output_bytes` cap. `#[serde(default)]` keeps older
+    /// serialized payloads (without this field) parseable.
+    #[serde(default)]
+    pub truncated: bool,
+    /// Whether the command was terminated because its cancellation token
+    /// fired (as opposed to a timeout). `#[serde(default)]` keeps older
+    /// serialized payloads (without this field) parseable.
+    #[serde(default)]
+    pub cancelled: bool,
 }
 
 impl ExecOutput {
     /// Creates a new `ExecOutput` with the given fields.
+    ///
+    /// `truncated` and `cancelled` default to `false`; construct the struct
+    /// directly when a call site needs to set them.
     pub fn new(
         stdout: impl Into<String>,
         stderr: impl Into<String>,
@@ -102,7 +116,62 @@ impl ExecOutput {
         duration: Duration,
         timed_out: bool,
     ) -> Self {
-        Self { stdout: stdout.into(), stderr: stderr.into(), exit_code, duration, timed_out }
+        Self {
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            exit_code,
+            duration,
+            timed_out,
+            truncated: false,
+            cancelled: false,
+        }
+    }
+}
+
+/// Options for a rich command execution via
+/// [`SandboxSession::exec_command_opts`](super::session::SandboxSession::exec_command_opts).
+///
+/// All fields are optional so `ExecOptions::default()` yields a plain
+/// execution equivalent to [`SandboxSession::exec_command`](super::session::SandboxSession::exec_command)
+/// with no working directory. This struct is a runtime handle (it carries a
+/// [`CancellationToken`] and raw stdin bytes), so it is intentionally **not**
+/// serializable.
+#[derive(Debug, Clone)]
+pub struct ExecOptions {
+    /// Working directory relative to the workspace root. `None` uses the root.
+    pub working_dir: Option<String>,
+    /// Bytes to write to the command's standard input, then close the pipe.
+    /// `None` connects stdin to `/dev/null`.
+    pub stdin: Option<Vec<u8>>,
+    /// Cap on captured stdout/stderr bytes (each stream). When the cap is hit,
+    /// the child is still drained to completion and [`ExecOutput::truncated`]
+    /// is set. `None` means unbounded capture.
+    pub max_output_bytes: Option<usize>,
+    /// Per-command timeout. `None` falls back to the session's own timeout.
+    pub timeout: Option<Duration>,
+    /// Grace period between the graceful `SIGTERM` and the forceful `SIGKILL`
+    /// sent to the process group on timeout/cancellation. Defaults to
+    /// [`DEFAULT_TERMINATION_GRACE`].
+    pub termination_grace: Duration,
+    /// Cooperative cancellation: when this token fires the running command is
+    /// terminated (whole process group) and [`ExecOutput::cancelled`] is set.
+    pub cancel: Option<CancellationToken>,
+}
+
+/// Default grace between `SIGTERM` and `SIGKILL` when terminating a command's
+/// process group (1 second).
+pub const DEFAULT_TERMINATION_GRACE: Duration = Duration::from_secs(1);
+
+impl Default for ExecOptions {
+    fn default() -> Self {
+        Self {
+            working_dir: None,
+            stdin: None,
+            max_output_bytes: None,
+            timeout: None,
+            termination_grace: DEFAULT_TERMINATION_GRACE,
+            cancel: None,
+        }
     }
 }
 
@@ -199,6 +268,8 @@ mod tests {
             exit_code: 1,
             duration: Duration::from_millis(500),
             timed_out: false,
+            truncated: false,
+            cancelled: false,
         };
         let json = serde_json::to_string(&output).unwrap();
         let deserialized: ExecOutput = serde_json::from_str(&json).unwrap();
@@ -207,6 +278,29 @@ mod tests {
         assert_eq!(deserialized.exit_code, 1);
         assert_eq!(deserialized.duration, Duration::from_millis(500));
         assert!(!deserialized.timed_out);
+        assert!(!deserialized.truncated);
+        assert!(!deserialized.cancelled);
+    }
+
+    #[test]
+    fn exec_output_deserializes_without_new_fields() {
+        // Backward-compat: a payload predating `truncated`/`cancelled` must
+        // still parse (serde defaults them to false).
+        let legacy = r#"{"stdout":"x","stderr":"","exit_code":0,"duration":{"secs":0,"nanos":0},"timed_out":false}"#;
+        let out: ExecOutput = serde_json::from_str(legacy).unwrap();
+        assert!(!out.truncated);
+        assert!(!out.cancelled);
+    }
+
+    #[test]
+    fn exec_options_default_has_sane_grace() {
+        let opts = ExecOptions::default();
+        assert!(opts.working_dir.is_none());
+        assert!(opts.stdin.is_none());
+        assert!(opts.max_output_bytes.is_none());
+        assert!(opts.timeout.is_none());
+        assert!(opts.cancel.is_none());
+        assert_eq!(opts.termination_grace, DEFAULT_TERMINATION_GRACE);
     }
 
     #[test]

@@ -120,6 +120,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 
@@ -363,6 +364,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tracing",
  "uuid 1.23.2",
 ]
@@ -841,6 +843,7 @@ dependencies = [
  "async-trait",
  "bollard",
  "futures",
+ "nix 0.29.0",
  "proptest",
  "serde",
  "serde_json",
@@ -848,6 +851,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tracing",
  "uuid 1.23.2",
  "wasmtime",

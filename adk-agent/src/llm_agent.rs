@@ -1048,6 +1048,13 @@ impl ToolContext for AgentToolContext {
         self.parent_ctx.user_scopes()
     }
 
+    fn cancellation_token(&self) -> Option<tokio_util::sync::CancellationToken> {
+        // Expose the invocation's effective (per-session) token to tools so a
+        // long-running exec can abort on interrupt. Per-invocation precision is
+        // a later release; this is the session-scoped token today.
+        self.parent_ctx.cancellation_token()
+    }
+
     async fn get_secret(&self, name: &str) -> Result<Option<String>> {
         self.parent_ctx.get_secret(name).await
     }

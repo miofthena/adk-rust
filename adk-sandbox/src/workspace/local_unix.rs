@@ -14,7 +14,7 @@ use super::client::SandboxClient;
 use super::manifest::{Manifest, ManifestEntry};
 use super::path_safety::validate_relative_path;
 use super::session::SandboxSession;
-use super::types::{DirEntry, EntryType, ExecOutput, SessionHandle, SnapshotId};
+use super::types::{DirEntry, EntryType, ExecOptions, ExecOutput, SessionHandle, SnapshotId};
 use crate::SandboxError;
 
 /// SandboxClient implementation using local filesystem directories.
@@ -105,6 +105,48 @@ impl std::fmt::Debug for LocalUnixSession {
     }
 }
 
+/// Reads an async source to EOF, capturing up to `cap` bytes (when `Some`) and
+/// reporting whether any output beyond the cap was discarded. The source is
+/// always drained fully so its pipe never blocks the writing child.
+async fn read_capped<R>(mut reader: R, cap: Option<usize>) -> (Vec<u8>, bool)
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+    let mut buf = Vec::new();
+    let mut truncated = false;
+    let mut chunk = [0u8; 8192];
+    loop {
+        match reader.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => match cap {
+                Some(cap) if buf.len() >= cap => truncated = true,
+                Some(cap) => {
+                    let take = (cap - buf.len()).min(n);
+                    buf.extend_from_slice(&chunk[..take]);
+                    if take < n {
+                        truncated = true;
+                    }
+                }
+                None => buf.extend_from_slice(&chunk[..n]),
+            },
+            Err(_) => break,
+        }
+    }
+    (buf, truncated)
+}
+
+/// Gracefully terminates a whole process group: `SIGTERM`, wait `grace`, then a
+/// forceful `SIGKILL`. Errors (e.g. the group already exited) are ignored.
+async fn terminate_group(pgid: i32, grace: std::time::Duration) {
+    use nix::sys::signal::{Signal, killpg};
+    use nix::unistd::Pid;
+    let group = Pid::from_raw(pgid);
+    let _ = killpg(group, Signal::SIGTERM);
+    tokio::time::sleep(grace).await;
+    let _ = killpg(group, Signal::SIGKILL);
+}
+
 #[async_trait]
 impl SandboxSession for LocalUnixSession {
     async fn exec_command(
@@ -112,7 +154,21 @@ impl SandboxSession for LocalUnixSession {
         command: &str,
         working_dir: Option<&str>,
     ) -> Result<ExecOutput, SandboxError> {
-        let cwd = match working_dir {
+        // Delegate to the rich path with defaults so both entry points share the
+        // same process-group termination and capture behavior.
+        self.exec_command_opts(
+            command,
+            ExecOptions { working_dir: working_dir.map(str::to_string), ..Default::default() },
+        )
+        .await
+    }
+
+    async fn exec_command_opts(
+        &self,
+        command: &str,
+        opts: ExecOptions,
+    ) -> Result<ExecOutput, SandboxError> {
+        let cwd = match opts.working_dir.as_deref() {
             Some(dir) => {
                 validate_relative_path(dir)?;
                 self.workspace_dir.join(dir)
@@ -120,58 +176,102 @@ impl SandboxSession for LocalUnixSession {
             None => self.workspace_dir.clone(),
         };
 
+        let timeout = opts.timeout.unwrap_or(self.command_timeout);
         let start = std::time::Instant::now();
 
-        let mut child = tokio::process::Command::new("sh")
+        let mut builder = tokio::process::Command::new("sh");
+        builder
             .arg("-c")
             .arg(command)
             .current_dir(&cwd)
+            .stdin(if opts.stdin.is_some() {
+                std::process::Stdio::piped()
+            } else {
+                std::process::Stdio::null()
+            })
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        // Lead a fresh process group (pgid == child pid) so timeout/cancellation
+        // can signal the WHOLE tree — not just the direct child — via killpg.
+        builder.process_group(0);
+
+        let mut child = builder
             .spawn()
             .map_err(|e| SandboxError::ExecutionFailed(format!("failed to spawn command: {e}")))?;
 
-        // Take stdout/stderr handles before waiting so we can still kill on timeout
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
+        // Because the child leads its own group, its PID is the group's PGID.
+        let pgid = child.id().map(|pid| pid as i32);
 
-        match tokio::time::timeout(self.command_timeout, child.wait()).await {
-            Ok(Ok(status)) => {
-                let duration = start.elapsed();
-                let stdout_bytes = if let Some(mut out) = stdout {
-                    use tokio::io::AsyncReadExt;
-                    let mut buf = Vec::new();
-                    let _ = out.read_to_end(&mut buf).await;
-                    buf
-                } else {
-                    Vec::new()
-                };
-                let stderr_bytes = if let Some(mut err) = stderr {
-                    use tokio::io::AsyncReadExt;
-                    let mut buf = Vec::new();
-                    let _ = err.read_to_end(&mut buf).await;
-                    buf
-                } else {
-                    Vec::new()
-                };
-                Ok(ExecOutput::new(
-                    String::from_utf8_lossy(&stdout_bytes).into_owned(),
-                    String::from_utf8_lossy(&stderr_bytes).into_owned(),
-                    status.code().unwrap_or(-1),
-                    duration,
-                    false,
-                ))
+        // Feed stdin (if any), then close the writer to signal EOF.
+        if let Some(input) = opts.stdin.as_ref()
+            && let Some(mut stdin) = child.stdin.take()
+        {
+            use tokio::io::AsyncWriteExt;
+            let _ = stdin.write_all(input).await;
+            let _ = stdin.shutdown().await;
+        }
+
+        // Drain stdout/stderr concurrently in the background so a full pipe can
+        // never deadlock the child while we wait. These handles always complete
+        // once the pipes close (on normal exit or after the group is killed), and
+        // we await them below — no task is leaked.
+        let cap = opts.max_output_bytes;
+        let stdout_handle = child.stdout.take().map(|s| tokio::spawn(read_capped(s, cap)));
+        let stderr_handle = child.stderr.take().map(|s| tokio::spawn(read_capped(s, cap)));
+
+        let mut timed_out = false;
+        let mut cancelled = false;
+        let mut exit_code = -1;
+
+        let sleep = tokio::time::sleep(timeout);
+        tokio::pin!(sleep);
+        let cancel = opts.cancel.clone();
+
+        tokio::select! {
+            res = child.wait() => {
+                if let Ok(status) = res {
+                    exit_code = status.code().unwrap_or(-1);
+                }
             }
-            Ok(Err(e)) => {
-                Err(SandboxError::ExecutionFailed(format!("command execution failed: {e}")))
+            _ = &mut sleep => {
+                timed_out = true;
             }
-            Err(_) => {
-                // Timeout: kill the process
-                let _ = child.kill().await;
-                let duration = start.elapsed();
-                Ok(ExecOutput::new("", "", -1, duration, true))
+            _ = async {
+                match &cancel {
+                    Some(token) => token.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => {
+                cancelled = true;
             }
         }
+
+        if timed_out || cancelled {
+            if let Some(pgid) = pgid {
+                terminate_group(pgid, opts.termination_grace).await;
+            }
+            // Reap the direct child so it is not left as a zombie.
+            let _ = child.wait().await;
+        }
+
+        let (stdout_bytes, stdout_trunc) = match stdout_handle {
+            Some(handle) => handle.await.unwrap_or_default(),
+            None => (Vec::new(), false),
+        };
+        let (stderr_bytes, stderr_trunc) = match stderr_handle {
+            Some(handle) => handle.await.unwrap_or_default(),
+            None => (Vec::new(), false),
+        };
+
+        Ok(ExecOutput {
+            stdout: String::from_utf8_lossy(&stdout_bytes).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
+            exit_code,
+            duration: start.elapsed(),
+            timed_out,
+            truncated: stdout_trunc || stderr_trunc,
+            cancelled,
+        })
     }
 
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, SandboxError> {
@@ -1077,5 +1177,103 @@ mod tests {
         session.write_file("binary.dat", content).await.unwrap();
         let read_back = session.read_file("binary.dat").await.unwrap();
         assert_eq!(read_back, content);
+    }
+
+    // ── exec_command_opts (Release B: caps, stdin, cancel, group kill) ──────
+
+    /// Signal-0 existence probe: `ESRCH` means the process is fully gone
+    /// (killed and reaped), which is what a working group-kill produces.
+    fn process_is_dead(pid: i32) -> bool {
+        use nix::sys::signal::kill;
+        use nix::unistd::Pid;
+        matches!(kill(Pid::from_raw(pid), None), Err(nix::errno::Errno::ESRCH))
+    }
+
+    #[tokio::test]
+    async fn exec_command_opts_caps_output_and_sets_truncated() {
+        let temp = tempfile::tempdir().unwrap();
+        let session = LocalUnixSession::new(temp.path().to_path_buf(), Duration::from_secs(30));
+        let opts = ExecOptions { max_output_bytes: Some(64), ..Default::default() };
+        // Emit far more than the cap; capture must stop at the cap and flag it.
+        let output =
+            session.exec_command_opts("yes ABCDEFGH | head -c 100000", opts).await.unwrap();
+        assert_eq!(output.exit_code, 0);
+        assert!(output.truncated, "output exceeding the cap must set truncated");
+        assert!(
+            output.stdout.len() <= 64,
+            "stdout should be capped at 64 bytes, got {}",
+            output.stdout.len()
+        );
+        assert!(!output.timed_out);
+        assert!(!output.cancelled);
+    }
+
+    #[tokio::test]
+    async fn exec_command_opts_pipes_stdin() {
+        let temp = tempfile::tempdir().unwrap();
+        let session = LocalUnixSession::new(temp.path().to_path_buf(), Duration::from_secs(30));
+        let opts = ExecOptions { stdin: Some(b"hello stdin\n".to_vec()), ..Default::default() };
+        let output = session.exec_command_opts("cat", opts).await.unwrap();
+        assert_eq!(output.exit_code, 0);
+        assert_eq!(output.stdout, "hello stdin\n");
+        assert!(!output.truncated);
+    }
+
+    #[tokio::test]
+    async fn exec_command_opts_kills_process_group_on_timeout() {
+        let temp = tempfile::tempdir().unwrap();
+        let session = LocalUnixSession::new(temp.path().to_path_buf(), Duration::from_secs(30));
+        // Spawn a long-lived grandchild in the command's process group, record
+        // its PID, then block. A short timeout must terminate the WHOLE group,
+        // not just the direct `sh` child.
+        let command = "sleep 300 & echo $! > child.pid; wait";
+        let opts = ExecOptions {
+            timeout: Some(Duration::from_millis(200)),
+            termination_grace: Duration::from_millis(100),
+            ..Default::default()
+        };
+        let output = session.exec_command_opts(command, opts).await.unwrap();
+        assert!(output.timed_out, "command should have timed out");
+        assert!(!output.cancelled);
+        assert_eq!(output.exit_code, -1);
+
+        let pid: i32 = std::fs::read_to_string(temp.path().join("child.pid"))
+            .unwrap()
+            .trim()
+            .parse()
+            .expect("grandchild pid recorded");
+
+        // The grandchild must die with the group. Poll briefly for its reaping.
+        let mut alive = true;
+        for _ in 0..60 {
+            if process_is_dead(pid) {
+                alive = false;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(!alive, "grandchild {pid} survived — the process group was not killed");
+    }
+
+    #[tokio::test]
+    async fn exec_command_opts_cancellation_sets_cancelled() {
+        let temp = tempfile::tempdir().unwrap();
+        let session = LocalUnixSession::new(temp.path().to_path_buf(), Duration::from_secs(30));
+        let token = tokio_util::sync::CancellationToken::new();
+        let firing = token.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            firing.cancel();
+        });
+        let opts = ExecOptions {
+            timeout: Some(Duration::from_secs(30)),
+            termination_grace: Duration::from_millis(100),
+            cancel: Some(token),
+            ..Default::default()
+        };
+        let output = session.exec_command_opts("sleep 30", opts).await.unwrap();
+        assert!(output.cancelled, "token firing must set cancelled");
+        assert!(!output.timed_out, "cancellation is distinct from a timeout");
+        assert_eq!(output.exit_code, -1);
     }
 }

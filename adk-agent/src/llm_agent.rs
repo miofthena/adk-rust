@@ -1785,8 +1785,16 @@ impl Agent for LlmAgent {
                         if should_stream_to_client {
                             let mut partial_event = Event::with_id(&llm_event_id, &invocation_id);
                             partial_event.author = agent_name.clone();
-                            partial_event.llm_request = Some(request_json.clone());
-                            partial_event.provider_metadata.insert("gcp.vertex.agent.llm_request".to_string(), request_json.clone());
+                            // Attach the (potentially large) full serialized request ONLY to the
+                            // TERMINAL chunk (`partial == false`) — it is the event kept as the turn's
+                            // request-of-record. Cloning it into every intermediate chunk, twice
+                            // (`llm_request` + `provider_metadata`), multiplied peak memory by
+                            // request_size × chunk_count — catastrophic for inline-image requests.
+                            // FClaw memory fix — see docs/ADK_FORK.md.
+                            if !chunk.partial {
+                                partial_event.llm_request = Some(request_json.clone());
+                                partial_event.provider_metadata.insert("gcp.vertex.agent.llm_request".to_string(), request_json.clone());
+                            }
                             partial_event.provider_metadata.insert("gcp.vertex.agent.llm_response".to_string(), serde_json::to_string(&chunk).unwrap_or_default());
                             partial_event.llm_response.partial = chunk.partial;
                             partial_event.llm_response.turn_complete = chunk.turn_complete;

@@ -252,10 +252,20 @@ impl Runner {
         #[cfg(feature = "context-compaction")]
         let context_compaction = self.context_compaction.clone();
 
-        // Register a per-session cancellation token for the interrupt API.
-        // If a global token is configured, create a child token so that
-        // either global cancellation OR per-session interrupt stops this run.
-        let session_token = CancellationToken::new();
+        // Register a per-session cancellation token for the interrupt API. When a global token is
+        // configured, make the session token a CHILD of it (`child_token`): global cancellation
+        // propagates to this run automatically, and a per-session `interrupt()` cancels only this
+        // run — with ZERO spawned tasks.
+        //
+        // (FClaw memory fix — see docs/ADK_FORK.md. The previous implementation spawned two watcher
+        // tasks per run to union the global + session tokens, but never aborted them; on a normal
+        // turn the session token is never cancelled, so its watcher task — and everything it
+        // captured — parked on the waker list until process shutdown, ~1.2 KB of resident slope per
+        // request. `child_token` expresses the same "cancel on either" union with no tasks at all.)
+        let session_token = match &cancellation_token {
+            Some(global) => global.child_token(),
+            None => CancellationToken::new(),
+        };
         let session_id_str = session_id.as_str().to_string();
         {
             let mut sessions = self.active_sessions.lock().unwrap_or_else(|e| e.into_inner());
@@ -263,27 +273,9 @@ impl Runner {
         }
         let active_sessions = self.active_sessions.clone();
 
-        // Effective token: cancelled if either the global token or the session token fires
-        let effective_token = if let Some(ref global) = cancellation_token {
-            let combined = CancellationToken::new();
-            let combined_clone = combined.clone();
-            let global_clone = global.clone();
-            let session_clone = session_token.clone();
-            // Watch both tokens — cancel the combined token when either fires
-            let combined_for_global = combined_clone.clone();
-            tokio::spawn(async move {
-                global_clone.cancelled().await;
-                combined_for_global.cancel();
-            });
-            let combined_for_session = combined_clone;
-            tokio::spawn(async move {
-                session_clone.cancelled().await;
-                combined_for_session.cancel();
-            });
-            Some(combined)
-        } else {
-            Some(session_token.clone())
-        };
+        // The session token already unifies global + per-session cancellation (see above), so it IS
+        // the effective token — no combined token, no watcher tasks.
+        let effective_token = Some(session_token);
 
         let s = stream! {
             // Clean up session tracking when the stream ends.
@@ -760,8 +752,15 @@ impl Runner {
                             ctx.mutable_session().apply_state_delta(&event.actions.state_delta);
                         }
 
-                        // Also add the event to the mutable session's event list
-                        ctx.mutable_session().append_event(event.clone());
+                        // Also add the event to the mutable session's event list — but SKIP partial
+                        // streaming chunks. They are ephemeral deltas (the terminal, non-partial
+                        // event carries the accumulated content and IS persisted below); retaining
+                        // every partial in the in-RAM session, each carrying a cloned full request,
+                        // grew memory by request_size × chunk_count per streamed turn. FClaw memory
+                        // fix — see docs/ADK_FORK.md.
+                        if !event.llm_response.partial {
+                            ctx.mutable_session().append_event(event.clone());
+                        }
 
                         // Append event to session service (persistent storage)
                         // Skip partial streaming chunks — only persist the final
@@ -934,8 +933,11 @@ impl Runner {
                                 transfer_ctx.mutable_session().apply_state_delta(&event.actions.state_delta);
                             }
 
-                            // Add to mutable session
-                            transfer_ctx.mutable_session().append_event(event.clone());
+                            // Add to mutable session — skip partial streaming chunks (see the main
+                            // loop above; FClaw memory fix, docs/ADK_FORK.md).
+                            if !event.llm_response.partial {
+                                transfer_ctx.mutable_session().append_event(event.clone());
+                            }
 
                             if !event.llm_response.partial
                                 && let Err(e) = session_service.append_event(ctx.session_id(), event.clone()).await {

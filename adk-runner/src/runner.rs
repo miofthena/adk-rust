@@ -9,7 +9,28 @@ use adk_core::{
 };
 #[cfg(feature = "plugins")]
 use adk_plugin::PluginManager;
-use adk_session::SessionService;
+use adk_session::{AppendEventRequest, SessionService};
+
+/// Build an identity-scoped [`AppendEventRequest`] from the invocation's EFFECTIVE identity strings
+/// (`app_name`/`user_id`/`session_id` — which already resolve a synthetic A2A user). Using the full
+/// identity triple lets the session store disambiguate a `session_id` that is shared across
+/// identities, instead of the legacy `append_event(session_id)` path hitting SQLite's
+/// `ambiguous session_id` error. FClaw ADK fork, Series 6 — see `docs/ADK_FORK.md`.
+fn identity_append_request(
+    app_name: &str,
+    user_id: &str,
+    session_id: &str,
+    event: adk_core::Event,
+) -> AppendEventRequest {
+    AppendEventRequest {
+        identity: adk_core::AdkIdentity::new(
+            adk_core::AppName::new_unchecked(app_name),
+            adk_core::UserId::new_unchecked(user_id),
+            adk_core::SessionId::new_unchecked(session_id),
+        ),
+        event,
+    }
+}
 #[cfg(feature = "skills")]
 use adk_skill::{SkillInjector, SkillInjectorConfig};
 use async_stream::stream;
@@ -815,7 +836,7 @@ impl Runner {
                         early_event.llm_response.content = Some(content);
 
                         ctx.mutable_session().append_event(early_event.clone());
-                        if let Err(e) = session_service.append_event(ctx.session_id(), early_event.clone()).await {
+                        if let Err(e) = session_service.append_event_for_identity(identity_append_request(ctx.app_name(), ctx.user_id(), ctx.session_id(), early_event.clone())).await {
                             yield Err(e);
                             return;
                         }
@@ -904,7 +925,7 @@ impl Runner {
             // Note: adk_session::Event is a re-export of adk_core::Event, so we can use it directly
             ctx.mutable_session().append_event(user_event.clone());
 
-            if let Err(e) = session_service.append_event(ctx.session_id(), user_event).await {
+            if let Err(e) = session_service.append_event_for_identity(identity_append_request(ctx.app_name(), ctx.user_id(), ctx.session_id(), user_event)).await {
                 #[cfg(feature = "plugins")]
                 if let Some(manager) = plugin_manager.as_ref() {
                     manager.run_after_run(ctx.clone() as Arc<dyn adk_core::InvocationContext>).await;
@@ -1194,7 +1215,7 @@ impl Runner {
                         // constraint. The final chunk (partial=false) carries the
                         // complete accumulated content.
                         if !event.llm_response.partial
-                            && let Err(e) = session_service.append_event(ctx.session_id(), event.clone()).await {
+                            && let Err(e) = session_service.append_event_for_identity(identity_append_request(ctx.app_name(), ctx.user_id(), ctx.session_id(), event.clone())).await {
                                 #[cfg(feature = "plugins")]
                                 if let Some(manager) = plugin_manager.as_ref() {
                                     manager.run_after_run(ctx.clone() as Arc<dyn adk_core::InvocationContext>).await;
@@ -1372,7 +1393,7 @@ impl Runner {
                             }
 
                             if !event.llm_response.partial
-                                && let Err(e) = session_service.append_event(ctx.session_id(), event.clone()).await {
+                                && let Err(e) = session_service.append_event_for_identity(identity_append_request(ctx.app_name(), ctx.user_id(), ctx.session_id(), event.clone())).await {
                                     #[cfg(feature = "plugins")]
                                     if let Some(manager) = plugin_manager.as_ref() {
                                         manager.run_after_run(ctx.clone() as Arc<dyn adk_core::InvocationContext>).await;
@@ -1437,9 +1458,13 @@ impl Runner {
                             match compaction_cfg.summarizer.summarize_events(events_to_compact).await {
                                 Ok(Some(compaction_event)) => {
                                     // Persist the compaction event
-                                    if let Err(e) = session_service.append_event(
-                                        ctx.session_id(),
-                                        compaction_event.clone(),
+                                    if let Err(e) = session_service.append_event_for_identity(
+                                        identity_append_request(
+                                            ctx.app_name(),
+                                            ctx.user_id(),
+                                            ctx.session_id(),
+                                            compaction_event.clone(),
+                                        ),
                                     ).await {
                                         tracing::warn!(error = %e, "Failed to persist compaction event");
                                     } else {
